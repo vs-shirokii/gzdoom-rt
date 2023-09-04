@@ -38,6 +38,10 @@
 #include "hw_lighting.h"
 #include "texturemanager.h"
 
+#if HAVE_RT
+#include "rt/rt_state.h"
+#endif
+
 EXTERN_CVAR(Int, r_mirror_recursions)
 EXTERN_CVAR(Bool, gl_portals)
 
@@ -179,6 +183,10 @@ void FPortalSceneState::RenderPortal(HWPortal *p, FRenderState &state, bool uses
 
 void HWPortal::DrawPortalStencil(FRenderState &state, int pass)
 {
+#if HAVE_RT
+	auto rttemp = rtstate.push_uniqueid(this, 1 /* salt to distinguish between sky-visibility and sky-contents */);
+#endif
+
 	if (mPrimIndices.Size() == 0)
 	{
 		mPrimIndices.Resize(2 * lines.Size());
@@ -248,6 +256,10 @@ void HWPortal::DrawPortalStencil(FRenderState &state, int pass)
 
 void HWPortal::SetupStencil(HWDrawInfo *di, FRenderState &state, bool usestencil)
 {
+#if HAVE_RT
+	auto rttype = rtstate.push_type(RtPrim::SkyVisibility);
+#endif
+
 	Clocker c(PortalAll);
 
 	rendered_portals++;
@@ -262,6 +274,7 @@ void HWPortal::SetupStencil(HWDrawInfo *di, FRenderState &state, bool usestencil
 		state.ResetColor();
 		state.SetDepthFunc(DF_Less);
 			
+#if !HAVE_RT // need to call DrawPortalStencil only once (because of uniqueid)
 		if (NeedDepthBuffer())
 		{
 			state.SetDepthMask(false);							// don't write to Z-buffer!
@@ -283,6 +296,7 @@ void HWPortal::SetupStencil(HWDrawInfo *di, FRenderState &state, bool usestencil
 			state.SetEffect(EFF_NONE);
 		}
 		else
+#endif
 		{
 			// No z-buffer is needed therefore we can skip all the complicated stuff that is involved
 			// Note: We must draw the stencil with z-write enabled here because there is no second pass!
@@ -321,6 +335,10 @@ void HWPortal::SetupStencil(HWDrawInfo *di, FRenderState &state, bool usestencil
 //-----------------------------------------------------------------------------
 void HWPortal::RemoveStencil(HWDrawInfo *di, FRenderState &state, bool usestencil)
 {
+#if HAVE_RT
+	auto rttype = rtstate.push_type(RtPrim::Ignored);
+#endif
+
 	Clocker c(PortalAll);
 	bool needdepth = NeedDepthBuffer();
 
@@ -954,6 +972,12 @@ HWHorizonPortal::HWHorizonPortal(FPortalSceneState *s, HWHorizonInfo * pt, FRend
 //-----------------------------------------------------------------------------
 void HWHorizonPortal::DrawContents(HWDrawInfo *di, FRenderState &state)
 {
+#if HAVE_RT
+	assert(0 && "recheck if HWHorizonPortal is a sky");
+	auto rttype = rtstate.push_type(RtPrim::Sky);
+	auto rttemp = rtstate.push_uniqueid(this);
+#endif
+
 	Clocker c(PortalAll);
 
 	HWSectorPlane * sp = &origin->plane;

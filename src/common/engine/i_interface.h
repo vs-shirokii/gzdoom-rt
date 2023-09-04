@@ -57,6 +57,9 @@ struct WadStuff
 {
 	FString Path;
 	FString Name;
+#if HAVE_RT
+	FString Autoname;
+#endif
 };
 
 

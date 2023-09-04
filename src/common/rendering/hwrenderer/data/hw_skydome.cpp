@@ -72,6 +72,16 @@
 //-----------------------------------------------------------------------------
 CVAR(Float, skyoffset, 0.f, 0)	// for testing
 
+#if HAVE_RT
+CVARD(Float, r_skycap_mult, 1.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, 
+	"fixed color multiplier for sky caps: since Doom doesn't have 3D skyboxes, "
+	"circle caps are drawn on bottom and top of the sky")
+CVARD(Int, r_skycap_thresh, 100, CVAR_ARCHIVE | CVAR_GLOBALCONFIG,
+	"threshold for skycaps, if below, sky cap color multiplier will be 0.0, if above, 1.0; "
+	"if <0, then ignored")
+CVARD(Int, r_skycap_d2hack, 32, CVAR_ARCHIVE | CVAR_GLOBALCONFIG,
+	"if >0, SKY2's cap color in Doom 2 will be divided by this value")
+#endif
 
 struct SkyColor
 {
@@ -170,7 +180,13 @@ void FSkyVertexBuffer::SkyVertexDoom(int r, int c, bool zflip)
 	else
 	{
 		vert.u = (-c / (float)mColumns);
+#if !HAVE_RT
 		vert.v = 1.0f + ((mRows - r) / (float)mRows);
+#else
+		// RT: let the lower hemisphere to be mirrored, so the seam
+		//     between upper and lower hemispheres is not as harsh
+		vert.v = 1.0f - ((mRows - r) / (float)mRows);
+#endif
 	}
 
 	if (r != 4) z += 300;
@@ -456,6 +472,11 @@ void FSkyVertexBuffer::RenderRow(FRenderState& state, EDrawType prim, int row, T
 //
 //-----------------------------------------------------------------------------
 
+
+#if HAVE_RT
+extern bool rt_isdoom2;
+#endif
+
 void FSkyVertexBuffer::DoRenderDome(FRenderState& state, FGameTexture* tex, int mode, bool which, PalEntry color)
 {
 	auto& primStart = which ? mPrimStartBuild : mPrimStartDoom;
@@ -479,6 +500,40 @@ void FSkyVertexBuffer::DoRenderDome(FRenderState& state, FGameTexture* tex, int 
 		col.second.r = col.second.r * color.r / 255;
 		col.second.g = col.second.g * color.g / 255;
 		col.second.b = col.second.b * color.b / 255;
+
+#if HAVE_RT
+		auto adjust = []( PalEntry& c ) {
+			float skycapmult = r_skycap_mult;
+
+			if( r_skycap_thresh >= 0 )
+			{
+				if( c.Amplitude() < r_skycap_thresh )
+				{
+					skycapmult = 0;
+				}
+			}
+
+			c.r = std::clamp< int >( c.r * skycapmult, 0, 255 );
+			c.g = std::clamp< int >( c.g * skycapmult, 0, 255 );
+			c.b = std::clamp< int >( c.b * skycapmult, 0, 255 );
+		};
+
+		adjust( col.first );
+
+		// hack: no time to explain, need Doom 2 SKY2 to have black caps
+		if( r_skycap_d2hack > 0 && rt_isdoom2 )
+		{
+			if( tex && tex->GetName().IsNotEmpty() && tex->GetName().CompareNoCase( "SKY2" ) == 0 )
+			{
+				col.first.r /= r_skycap_d2hack;
+				col.first.g /= r_skycap_d2hack;
+				col.first.b /= r_skycap_d2hack;
+			}
+		}
+
+		// hack: since we draw bottom as a mirror of top part
+		col.second = col.first;
+#endif
 
 		state.SetObjectColor(col.first);
 		state.EnableTexture(false);

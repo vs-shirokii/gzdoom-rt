@@ -217,6 +217,16 @@ class ListMenu : Menu
 				MenuSound("menu/advance");
 			}
 			return true;
+		
+// RT begin
+		case MKEY_Left:
+		case MKEY_Right:
+			if (mDesc.mSelectedItem >= 0 && mDesc.mItems[mDesc.mSelectedItem].RT_Activate_LeftOrRight(mkey == MKEY_Left))
+			{
+				MenuSound("menu/advance");
+			}
+			return true;
+// RT end
 
 		default:
 			return Super.MenuEvent(mkey, fromcontroller);

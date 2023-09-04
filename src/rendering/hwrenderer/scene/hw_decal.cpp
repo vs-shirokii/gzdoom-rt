@@ -39,6 +39,10 @@
 #include "hw_renderstate.h"
 #include "texturemanager.h"
 
+#if HAVE_RT
+#include "rt/rt_state.h"
+#endif
+
 //==========================================================================
 //
 //
@@ -47,6 +51,12 @@
 
 void HWDecal::DrawDecal(HWDrawInfo *di, FRenderState &state)
 {
+#if HAVE_RT
+	assert(!lightlist);
+	auto rttype = rtstate.push_type(RtPrim::Decal);
+	auto rttemp = rtstate.push_uniqueid(this);
+#endif
+
 	PalEntry DecalColor;
 	// alpha color only has an effect when using an alpha texture.
 	if (decal->RenderStyle.Flags & (STYLEF_RedIsAlpha | STYLEF_ColorIsFixed))
@@ -74,8 +84,22 @@ void HWDecal::DrawDecal(HWDrawInfo *di, FRenderState &state)
 		}
 	}
 
+#if !HAVE_RT
 	state.SetTextureMode(decal->RenderStyle);
 	state.SetRenderStyle(decal->RenderStyle);
+#else
+	// promote shade to be additivem but preserving STYLEF_RedIsAlpha
+	{
+		auto rs = decal->RenderStyle;
+		if ((decal->RenderFlags & RF_FULLBRIGHT) && (rs == LegacyRenderStyles[STYLE_Shaded]))
+		{
+			rs.BlendOp = STYLEOP_Add;
+			rs.DestAlpha = STYLEALPHA_One;
+		}
+		state.SetTextureMode(rs);
+		state.SetRenderStyle(rs);
+	}
+#endif
 	state.SetMaterial(texture, UF_Sprite, 0, CLAMP_XY, decal->Translation, -1);
 
 

@@ -62,6 +62,9 @@ class BulletPuff : Actor
 		+ALLOWPARTICLES
 		+RANDOMIZE
 		+ZDOOMTRANS
+// HAVE_RT begin: add light when bullet hits an actor
+		+PUFFONACTORS
+// HAVE_RT end
 		RenderStyle "Translucent";
 		Alpha 0.5;
 		VSpeed 1;
@@ -77,7 +80,35 @@ class BulletPuff : Actor
 		Stop;
 	}
 }
-	
+
+// CREDIT: Agent_Ash
+// HAVE_RT begin: changed 'BulletPuff' to 'GibBulletPuff' on super shotgun / chainsaw
+class GibBulletPuff : BulletPuff
+{
+	Default
+	{
+		+PUFFONACTORS
+		+PUFFGETSOWNER
+		+HITTRACER
+	}
+	States
+	{
+	XDeath:
+		TNT1 A 1
+		{
+			if (tracer &&
+				target &&
+				tracer.SpawnHealth() < 160 &&
+				target.Distance3D(tracer) < 160)
+			{
+				bEXTREMEDEATH = true;
+			}
+		}
+		stop;
+	}
+}
+// HAVE_RT end
+
 // Container for an unused state -------------------------------------------
 
 /* Doom defined the states S_STALAG, S_DEADTORSO, and S_DEADBOTTOM but never

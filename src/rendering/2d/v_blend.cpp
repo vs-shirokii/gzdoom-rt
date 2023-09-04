@@ -54,6 +54,10 @@ CVAR(Float, underwater_fade_scalar, 1.0f, CVAR_ARCHIVE) // [Nash] user-settable 
 CVAR( Float, blood_fade_scalar, 1.0f, CVAR_ARCHIVE )	// [SP] Pulled from Skulltag - changed default from 0.5 to 1.0
 CVAR( Float, pickup_fade_scalar, 1.0f, CVAR_ARCHIVE )	// [SP] Uses same logic as blood_fade_scalar except for pickups
 
+#if HAVE_RT
+#include "rt/rt_state.h"
+#endif
+
 // [RH] Amount of red flash for up to 114 damage points. Calculated by hand
 //		using a logarithmic scale and my trusty HP48G.
 static uint8_t DamageToAlpha[114] =
@@ -116,9 +120,18 @@ void V_AddPlayerBlend (player_t *CPlayer, float blend[4], float maxinvalpha, int
 
 		if (color.a != 0)
 		{
+#if !HAVE_RT // via postprocessing
 			V_AddBlend (color.r/255.f, color.g/255.f, color.b/255.f, color.a/255.f, blend);
+#endif
 			if (color.a/255.f > maxinvalpha) maxinvalpha = color.a/255.f;
 		}
+
+#if HAVE_RT
+		if (item->IsKindOf(NAME_PowerStrength))
+		{
+			rtstate.m_berserkBlend = color.a;
+		}
+#endif
 	}
 	if (CPlayer->bonuscount)
 	{
@@ -126,9 +139,11 @@ void V_AddPlayerBlend (player_t *CPlayer, float blend[4], float maxinvalpha, int
 
 		// [SP] Allow player to tone down intensity of pickup flash.
 		cnt = (int)( cnt * pickup_fade_scalar );
-		
+
+#if !HAVE_RT // via postprocessing
 		V_AddBlend (RPART(gameinfo.pickupcolor)/255.f, GPART(gameinfo.pickupcolor)/255.f, 
 					BPART(gameinfo.pickupcolor)/255.f, cnt > 128 ? 0.5f : cnt / 255.f, blend);
+#endif
 	}
 
 	PalEntry painFlash = 0;
@@ -151,7 +166,9 @@ void V_AddPlayerBlend (player_t *CPlayer, float blend[4], float maxinvalpha, int
 			if (cnt > maxpainblend)
 				cnt = maxpainblend;
 
+#if !HAVE_RT // via postprocessing
 			V_AddBlend (painFlash.r / 255.f, painFlash.g / 255.f, painFlash.b / 255.f, cnt / 255.f, blend);
+#endif
 		}
 	}
 
@@ -238,6 +255,8 @@ FVector4 V_CalcBlend(sector_t* viewsector, PalEntry* modulateColor)
 		if (player)
 			fullbright = (player->fixedcolormap != NOFIXEDCOLORMAP || player->extralight == INT_MIN || player->fixedlightlevel != -1);
 	}
+
+#if !HAVE_RT // via postprocessing
 
 	// don't draw sector based blends when any fullbright screen effect is active.
 	if (!fullbright)
@@ -340,6 +359,7 @@ FVector4 V_CalcBlend(sector_t* viewsector, PalEntry* modulateColor)
 			*modulateColor = color;
 		}
 	}
+#endif
 
 	if (player)
 	{

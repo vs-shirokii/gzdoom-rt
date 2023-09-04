@@ -49,6 +49,14 @@
 #include "engineerrors.h"
 
 
+
+#if HAVE_RT
+// HACKHACK: to not have a collision with existing config files
+#undef GAMENAMELOWERCASE
+#define GAMENAMELOWERCASE "gzdoom-rt"
+#endif
+
+
 static int isportable = -1;
 
 //===========================================================================
@@ -193,6 +201,7 @@ FString M_GetAutoexecPath()
 // 
 //===========================================================================
 
+#if !HAVE_RT
 FString M_GetOldConfigPath(int& type)
 {
 	FString path;
@@ -231,6 +240,7 @@ FString M_GetOldConfigPath(int& type)
 
 	return "";
 }
+#endif
 
 //===========================================================================
 //
@@ -291,6 +301,7 @@ FString M_GetConfigPath(bool for_reading)
 	// No config was found in the accepted locations. 
 	// Look in previously valid places to see if we have something we can migrate
 
+#if !HAVE_RT
 	int type = 0;
 	FString oldpath = M_GetOldConfigPath(type);
 	if (!oldpath.IsEmpty())
@@ -309,6 +320,7 @@ FString M_GetConfigPath(bool for_reading)
 		if (res) return path;
 		else return oldpath;	// if we cannot move, just use the config where it was. It won't be written back, though and never be used again if a new one gets saved.
 	}
+#endif
 
 	// Fall back to the global template if nothing was found.
 	// If we are reading the config file, check if it exists. If not, fallback to base version.

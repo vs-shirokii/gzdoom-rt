@@ -31,6 +31,10 @@
 #include "hw_renderstate.h"
 #include "skyboxtexture.h"
 
+#if HAVE_RT
+#include "rt/rt_state.h"
+#endif
+
 //-----------------------------------------------------------------------------
 //
 //
@@ -38,6 +42,11 @@
 //-----------------------------------------------------------------------------
 void HWSkyPortal::DrawContents(HWDrawInfo *di, FRenderState &state)
 {
+#if HAVE_RT
+	auto rttype = rtstate.push_type(RtPrim::Sky);
+	auto rttemp = rtstate.push_uniqueid(this);
+#endif
+
 	bool drawBoth = false;
 	auto &vp = di->Viewpoint;
 

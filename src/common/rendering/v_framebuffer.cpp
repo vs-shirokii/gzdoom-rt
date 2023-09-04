@@ -252,6 +252,10 @@ void DFrameBuffer::ScaleCoordsFromWindow(int16_t &x, int16_t &y)
 
 void DFrameBuffer::FPSLimit()
 {
+#if HAVE_RT
+	return;
+#endif
+
 	using namespace std::chrono;
 	using namespace std::this_thread;
 

@@ -52,6 +52,14 @@ CVAR(Bool, gl_multithread, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
 EXTERN_CVAR(Float, r_actorspriteshadowdist)
 
+#if HAVE_RT
+#include "rt/rt_cvars.h"
+#include "rt/rt_helpers.h"
+
+static bool rt_nocull = false;
+static std::vector< bool > rt_segdrawn = {};
+#endif
+
 thread_local bool isWorkerThread;
 ctpl::thread_pool renderPool(1);
 bool inited = false;
@@ -271,6 +279,9 @@ void HWDrawInfo::AddLine (seg_t *seg, bool portalclip)
 	angle_t endAngle = clipper.GetClipAngle(seg->v1);
 
 	// Back side, i.e. backface culling	- read: endAngle >= startAngle!
+#if HAVE_RT
+	if( !rt_nocull )
+#endif
 	if (startAngle-endAngle<ANGLE_180)  
 	{
 		return;
@@ -280,6 +291,9 @@ void HWDrawInfo::AddLine (seg_t *seg, bool portalclip)
 	{
 		if (!(currentsubsector->flags & SSECMF_DRAWN))
 		{
+#if HAVE_RT
+			if( !rt_nocull )
+#endif
 			if (clipper.SafeCheckRange(startAngle, endAngle)) 
 			{
 				currentsubsector->flags |= SSECMF_DRAWN;
@@ -288,6 +302,9 @@ void HWDrawInfo::AddLine (seg_t *seg, bool portalclip)
 		return;
 	}
 
+#if HAVE_RT
+	if( !rt_nocull )
+#endif
 	if (!clipper.SafeCheckRange(startAngle, endAngle)) 
 	{
 		return;
@@ -298,6 +315,9 @@ void HWDrawInfo::AddLine (seg_t *seg, bool portalclip)
 
 	if (!seg->backsector)
 	{
+#if HAVE_RT
+		if( !rt_nocull )
+#endif
 		clipper.SafeAddClipRange(startAngle, endAngle);
 	}
 	else if (!ispoly)	// Two-sided polyobjects never obstruct the view
@@ -325,6 +345,9 @@ void HWDrawInfo::AddLine (seg_t *seg, bool portalclip)
 
 			if (hw_CheckClip(seg->sidedef, currentsector, backsector))
 			{
+#if HAVE_RT
+				if( !rt_nocull )
+#endif
 				clipper.SafeAddClipRange(startAngle, endAngle);
 			}
 		}
@@ -337,12 +360,36 @@ void HWDrawInfo::AddLine (seg_t *seg, bool portalclip)
 
 	seg->linedef->flags |= ML_MAPPED;
 
+#if !HAVE_RT
 	if (ispoly || seg->linedef->validcount!=validcount) 
+#else
+	const bool segforce =
+	    rt_nocull && ( seg->segnum >= 0 && seg->segnum < int( rt_segdrawn.size() ) &&
+	                   !rt_segdrawn[ seg->segnum ] );
+
+	if (ispoly || seg->linedef->validcount!=validcount || segforce)
+#endif
 	{
+#if HAVE_RT
+		if( !rt_nocull )
+#endif
 		if (!ispoly) seg->linedef->validcount=validcount;
 
 		if (gl_render_walls)
 		{
+#if HAVE_RT
+			bool needupload = true;
+			if( rt_cullmode == 0 )
+			{
+				if( RT_IsWallExportable( seg ) )
+				{
+					needupload = false;
+				}
+			}
+
+			if( needupload )
+			{
+#endif
 			if (multithread)
 			{
 				jobQueue.AddJob(RenderJob::WallJob, seg->Subsector, seg);
@@ -357,6 +404,20 @@ void HWDrawInfo::AddLine (seg_t *seg, bool portalclip)
 				rendered_lines++;
 				SetupWall.Unclock();
 			}
+#if HAVE_RT
+			} // if( needupload )
+#endif
+
+#if HAVE_RT
+			if( seg->segnum >= 0 && seg->segnum < int( rt_segdrawn.size() ) )
+			{
+				rt_segdrawn[ seg->segnum ] = true;
+			}
+			else
+			{
+				assert( 0 );
+			}
+#endif
 		}
 	}
 }
@@ -396,6 +457,10 @@ void HWDrawInfo::PolySubsector(subsector_t * sub)
 
 void HWDrawInfo::RenderPolyBSPNode (void *node)
 {
+#if HAVE_RT
+	assert(0);
+#endif
+
 	while (!((size_t)node & 1))  // Keep going until found a subsector
 	{
 		node_t *bsp = (node_t *)node;
@@ -652,6 +717,9 @@ void HWDrawInfo::DoSubsector(subsector_t * sub)
 	if (!sector) return;
 
 	// If the mapsections differ this subsector can't possibly be visible from the current view point
+#if HAVE_RT
+	if(!rt_nocull)
+#endif
 	if (!CurrentMapSections[sub->mapsection]) return;
 	if (sub->flags & SSECF_POLYORG) return;	// never render polyobject origin subsectors because their vertices no longer are where one may expect.
 
@@ -749,6 +817,20 @@ void HWDrawInfo::DoSubsector(subsector_t * sub)
 				{
 					srf |= SSRF_PROCESSED;
 
+#if HAVE_RT
+					bool needupload = true;
+					if( rt_cullmode == 0 )
+					{
+						if( RT_IsSectorExportable2( sector->sectornum, false ) &&
+							RT_IsSectorExportable2( sector->sectornum, true ) )
+						{
+							needupload = false;
+						}
+					}
+
+					if( needupload )
+					{
+#endif
 					if (multithread)
 					{
 						jobQueue.AddJob(RenderJob::FlatJob, sub);
@@ -761,6 +843,9 @@ void HWDrawInfo::DoSubsector(subsector_t * sub)
 						flat.ProcessSector(this, fakesector);
 						SetupFlat.Unclock();
 					}
+#if HAVE_RT
+					} // if( needupload )
+#endif
 				}
 				// mark subsector as processed - but mark for rendering only if it has an actual area.
 				ss_renderflags[sub->Index()] = 
@@ -824,6 +909,187 @@ void HWDrawInfo::RenderBSPNode (void *node)
 		DoSubsector (&Level->subsectors[0]);
 		return;
 	}
+
+#if HAVE_RT
+	if( rt_cullmode == 2 )
+	{
+		for( subsector_t& s : Level->subsectors )
+		{
+			DoSubsector( &s );
+		}
+		return;
+	}
+
+	if( rt_nocull )
+	{
+		assert( rt_cullmode != 1 && rt_cullmode != 2 );
+
+		static auto rt_sectorvis = std::vector< bool >{};
+		rt_sectorvis.resize( Level->sectors.size() );
+
+		rt_sectorvis.assign( rt_sectorvis.size(), false );
+		for( const seg_t& seg : level.segs )
+		{
+			if( seg.segnum < 0 || seg.segnum >= int( rt_segdrawn.size() ) )
+			{
+				assert( 0 );
+				continue;
+			}
+
+			bool visible = rt_segdrawn[ seg.segnum ];
+
+			if( visible )
+			{
+				int sectornum = seg.Subsector->sector->sectornum;
+				if( sectornum >= 0 && sectornum < int( rt_sectorvis.size() ) )
+				{
+					rt_sectorvis[ sectornum ] = true;
+				}
+				else
+				{
+					assert( 0 );
+				}
+			}
+		}
+
+		static auto sectorvis_expanded = std::vector< bool >{};
+		sectorvis_expanded.resize( Level->sectors.size() );
+
+
+		// add in radius
+		if( cvar::rt_cpu_nocullradius > 0.1f )
+		{
+			const float nocullradius = 32 * float( cvar::rt_cpu_nocullradius ); // from metric
+
+			const auto viewbox = FBoundingBox( Viewpoint.Pos.X, Viewpoint.Pos.Y, nocullradius );
+
+			sectorvis_expanded.assign( sectorvis_expanded.size(), false );
+			for( const sector_t& candidate : Level->sectors )
+			{
+				if( candidate.sectornum < 0 && candidate.sectornum >= int( rt_sectorvis.size() ) )
+				{
+					assert( 0 );
+					continue;
+				}
+
+				if( rt_sectorvis[ candidate.sectornum ] )
+				{
+					sectorvis_expanded[ candidate.sectornum ] = true;
+					continue;
+				}
+
+				bool touches = false;
+				for( const line_t* l : candidate.Lines )
+				{
+					if( l && inRange( viewbox, l ) )
+					{
+						touches = true;
+						break;
+					}
+				}
+
+				if( !touches )
+				{
+					continue;
+				}
+				for( seg_t& seg : Level->segs )
+				{
+					int fs = ( seg.frontsector && seg.frontsector->sectornum >= 0 &&
+					           seg.frontsector->sectornum < int( rt_sectorvis.size() ) )
+					             ? seg.frontsector->sectornum
+					             : -1;
+					if( fs < 0 )
+					{
+						continue;
+					}
+
+					int bs = ( seg.backsector && seg.backsector->sectornum >= 0 &&
+					           seg.backsector->sectornum < int( rt_sectorvis.size() ) )
+					             ? seg.backsector->sectornum
+					             : -1;
+					if( bs < 0 )
+					{
+						continue;
+					}
+
+					// 'fs' is a neighbor, and 'fs' is visible => candidate is visible
+					// 'bs' is a neighbor, and 'bs' is visible => candidate is visible
+					if( ( candidate.sectornum == fs && rt_sectorvis[ bs ] ) ||
+					    ( candidate.sectornum == bs && rt_sectorvis[ fs ] ) )
+					{
+						sectorvis_expanded[ candidate.sectornum ] = true;
+						break;
+					}
+				}
+			}
+
+			std::swap( sectorvis_expanded, rt_sectorvis );
+		}
+
+
+		// add neighbor sectors
+		sectorvis_expanded.assign( sectorvis_expanded.size(), false );
+		for( seg_t& seg : Level->segs )
+		{
+			int fs = ( seg.frontsector && seg.frontsector->sectornum >= 0 &&
+			           seg.frontsector->sectornum < int( rt_sectorvis.size() ) )
+			             ? seg.frontsector->sectornum
+			             : -1;
+
+			int bs = ( seg.backsector && seg.backsector->sectornum >= 0 &&
+			           seg.backsector->sectornum < int( rt_sectorvis.size() ) )
+			             ? seg.backsector->sectornum
+			             : -1;
+
+			// front visible
+			if( fs >= 0 && rt_sectorvis[ fs ] )
+			{
+				sectorvis_expanded[ fs ] = true;
+				// automatically, back is visible too
+				if( bs >= 0 )
+				{
+					sectorvis_expanded[ bs ] = true;
+				}
+			}
+
+			// back visible
+			if( bs >= 0 && rt_sectorvis[ bs ] )
+			{
+				sectorvis_expanded[ bs ] = true;
+				// automatically, front is visible too
+				if( fs >= 0 )
+				{
+					sectorvis_expanded[ fs ] = true;
+				}
+			}
+		}
+
+		for( const sector_t& sector : Level->sectors )
+		{
+			if( sector.sectornum < 0 && sector.sectornum >= int( sectorvis_expanded.size() ) )
+			{
+				assert( 0 );
+				continue;
+			}
+			if( !sectorvis_expanded[ sector.sectornum ] )
+			{
+				// not visible
+				continue;
+			}
+
+			for( int i = 0; i < sector.subsectorcount; i++ )
+			{
+				if( sector.subsectors[ i ] )
+				{
+					DoSubsector( sector.subsectors[ i ] );
+				}
+			}
+		}
+
+		return;
+	}
+#endif
+
 	while (!((size_t)node & 1))  // Keep going until found a subsector
 	{
 		node_t *bsp = (node_t *)node;
@@ -859,6 +1125,11 @@ void HWDrawInfo::RenderBSP(void *node, bool drawpsprites)
 
 	validcount++;	// used for processing sidedefs only once by the renderer.
 
+#if HAVE_RT
+	rt_segdrawn.resize( Level ? Level->segs.size() : 0, false );
+	rt_segdrawn.assign( rt_segdrawn.size(), false );
+#endif
+
 	multithread = gl_multithread;
 	if (multithread)
 	{
@@ -866,7 +1137,20 @@ void HWDrawInfo::RenderBSP(void *node, bool drawpsprites)
 		auto future = renderPool.push([&](int id) {
 			WorkerThread();
 		});
+#if !HAVE_RT
 		RenderBSPNode(node);
+#else
+		if( rt_cullmode != 2 )
+		{
+			rt_nocull = false;
+			RenderBSPNode( node );
+		}
+		if( rt_cullmode != 1 )
+		{
+			rt_nocull = true;
+			RenderBSPNode( node );
+		}
+#endif
 
 		jobQueue.AddJob(RenderJob::TerminateJob, nullptr, nullptr);
 		Bsp.Unclock();
@@ -876,7 +1160,20 @@ void HWDrawInfo::RenderBSP(void *node, bool drawpsprites)
 	}
 	else
 	{
+#if !HAVE_RT
 		RenderBSPNode(node);
+#else
+		if( rt_cullmode != 2 )
+		{
+			rt_nocull = false;
+			RenderBSPNode( node );
+		}
+		if( rt_cullmode != 1 )
+		{
+			rt_nocull = true;
+			RenderBSPNode( node );
+		}
+#endif
 		Bsp.Unclock();
 	}
 	// Process all the sprites on the current portal's back side which touch the portal.

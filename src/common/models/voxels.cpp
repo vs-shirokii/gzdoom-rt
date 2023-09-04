@@ -153,7 +153,11 @@ static void RemapVoxelSlabs(kvxslab_t *dest, int size, const uint8_t *remap)
 #pragma GCC optimize ("-fno-tree-loop-vectorize")
 #endif // __GNUC__ && !__clang__
 
+#if !HAVE_RT // .vox support
 FVoxel *R_LoadKVX(int lumpnum)
+#else
+FVoxel *R_LoadKVX_internal(const uint8_t *rawvoxel, int voxelsize, int lumpnum)
+#endif
 {
 	const kvxslab_t *slabs[MAXVOXMIPS];
 	FVoxel *voxel = new FVoxel;
@@ -161,9 +165,11 @@ FVoxel *R_LoadKVX(int lumpnum)
 	int mip, maxmipsize;
 	int i, j, n;
 
+#if !HAVE_RT // .vox support
 	auto lump =  fileSystem.ReadFile(lumpnum);	// FileData adds an extra 0 byte to the end.
 	auto rawvoxel = lump.bytes();
 	int voxelsize = (int)(lump.size());
+#endif
 
 	// Oh, KVX, why couldn't you have a proper header? We'll just go through
 	// and collect each MIP level, doing lots of range checking, and if the
@@ -296,6 +302,378 @@ FVoxel *R_LoadKVX(int lumpnum)
 #if defined __GNUC__ && !defined __clang__
 #pragma GCC pop_options
 #endif // __GNUC__ && !__clang__
+
+#if HAVE_RT // .vox support
+
+auto SLADE_voxToKvx(const uint8_t *in) -> std::vector<uint8_t>
+{
+#define AT(x, y, z) (((x) * length + (y)) * height + (z))
+
+#pragma pack(push, r1, 1)
+	struct VoxStartHeader
+	{
+		char name[4];
+		int version;
+	};
+
+	struct VoxChunk
+	{
+		char name[4];
+		int numBytes;
+		int numBytesChildren;
+	};
+
+	struct Xyzi
+	{
+		uint8_t x;
+		uint8_t y;
+		uint8_t z;
+		uint8_t colorIndex;
+	};
+
+	struct VoxRgba
+	{
+		uint8_t r;
+		uint8_t g;
+		uint8_t b;
+		uint8_t a;
+	};
+
+	struct KvxRgb
+	{
+		uint8_t r;
+		uint8_t g;
+		uint8_t b;
+	};
+
+	struct KvxHeader
+	{
+		uint32_t total_bytes;
+		uint32_t width;
+		uint32_t length;
+		uint32_t height;
+		uint32_t pivot_x;
+		uint32_t pivot_y;
+		uint32_t pivot_z;
+	};
+
+	struct KvxColumnPostHeader
+	{
+		uint8_t topdelta;
+		uint8_t size;
+		uint8_t culling;
+	};
+#pragma pack(pop, r1)
+
+	const uint8_t LEFT = 1;
+	const uint8_t RIGHT = 2;
+	const uint8_t FRONT = 4;
+	const uint8_t BACK = 8;
+	const uint8_t TOP = 16;
+	const uint8_t BOTTOM = 32;
+
+	auto readin = [&in](void *dst, size_t sz) -> const void *
+		{
+			const void *src = in;
+			if (dst)
+			{
+				memcpy(dst, src, sz);
+			}
+			in += sz;
+			return src;
+		};
+	auto checkname = [](const char name[4], const char *check)
+		{
+			return name[0] == check[0] &&
+				name[1] == check[1] &&
+				name[2] == check[2] &&
+				name[3] == check[3];
+		};
+
+	{
+		VoxStartHeader voxHeader{};
+		readin(&voxHeader, sizeof(voxHeader));
+		assert(checkname(voxHeader.name, "VOX "));
+	}
+	{
+		VoxChunk mainChunk{};
+		readin(&mainChunk, sizeof(mainChunk));
+		assert(checkname(mainChunk.name, "MAIN"));
+
+		assert(mainChunk.numBytes == 0);
+		readin(nullptr, mainChunk.numBytes);
+	}
+	{
+		VoxChunk packChunk{};
+		readin(&packChunk, sizeof(packChunk));
+		if (checkname(packChunk.name, "PACK"))
+		{
+			assert(packChunk.numBytes == 4);
+
+			int numModels = 0;
+			readin(&numModels, sizeof(numModels));
+		}
+		else
+		{
+			// reset back
+			in -= sizeof(packChunk);
+		}
+	}
+
+	uint32_t width = 0;
+	uint32_t length = 0;
+	uint32_t height = 0;
+	{
+		VoxChunk szChunk{};
+		readin(&szChunk, sizeof(szChunk));
+		assert(checkname(szChunk.name, "SIZE"));
+
+		assert(szChunk.numBytes == 12);
+
+		readin(&width, sizeof(width));
+		readin(&length, sizeof(length));
+		readin(&height, sizeof(height));
+	}
+
+#define EMPTYVOXEL 0
+
+	// XYZ -> color or EMPTYVOXEL
+	auto voxels = std::vector<uint8_t>{};
+	voxels.resize((size_t)width * (size_t)length * (size_t)height);
+	{
+		VoxChunk xyziChunk{};
+		readin(&xyziChunk, sizeof(xyziChunk));
+		assert(checkname(xyziChunk.name, "XYZI"));
+
+		assert(xyziChunk.numBytes >= 4);
+
+		int numVoxels = 0;
+		readin(&numVoxels, sizeof(numVoxels));
+
+		static_assert(sizeof(Xyzi) == 4);
+		auto allXyzi = static_cast<const Xyzi *>(readin(nullptr, sizeof(Xyzi) * numVoxels));
+
+		memset(voxels.data(), EMPTYVOXEL, voxels.size());
+		for (int i = 0; i < numVoxels; i++)
+		{
+			const Xyzi &v = allXyzi[i];
+
+			assert(v.colorIndex != EMPTYVOXEL);
+			voxels[AT(v.x, v.y, v.z)] = v.colorIndex;
+		}
+	}
+
+	//
+	// mykola-ambar begin
+	//
+	// Based on https://github.com/mykola-ambar 's VOX to KVX converter
+	// https://github.com/sirjuddington/SLADE/pull/1063
+	//
+
+	auto visibilities = std::vector<uint8_t>{};
+	visibilities.resize((size_t)width * length * height);
+	for (uint32_t x = 0; x < width; x++)
+	{
+		for (uint32_t y = 0; y < length; y++)
+		{
+			for (uint32_t z = 0; z < height; z++)
+			{
+				if (voxels[AT(x, y, z)] == EMPTYVOXEL) continue;
+
+				if (x == 0 || voxels[AT(x - 1, y, z)] == EMPTYVOXEL)
+					visibilities[AT(x, y, z)] |= LEFT;
+				if (x == width - 1 || voxels[AT(x + 1, y, z)] == EMPTYVOXEL)
+					visibilities[AT(x, y, z)] |= RIGHT;
+				if (y == 0 || voxels[AT(x, y - 1, z)] == EMPTYVOXEL)
+					visibilities[AT(x, y, z)] |= FRONT;
+				if (y == length - 1 || voxels[AT(x, y + 1, z)] == EMPTYVOXEL)
+					visibilities[AT(x, y, z)] |= BACK;
+				if (z == 0 || voxels[AT(x, y, z - 1)] == EMPTYVOXEL)
+					visibilities[AT(x, y, z)] |= TOP;
+				if (z == height - 1 || voxels[AT(x, y, z + 1)] == EMPTYVOXEL)
+					visibilities[AT(x, y, z)] |= BOTTOM;
+			}
+		}
+	}
+	for (uint32_t x = 0; x < width; x++)
+	{
+		for (uint32_t y = 0; y < length; y++)
+		{
+			for (uint32_t z = 0; z < height; z++)
+			{
+				if (visibilities[AT(x, y, z)] == 0)
+				{
+					voxels[AT(x, y, z)] = EMPTYVOXEL;
+				}
+			}
+		}
+	}
+
+	//
+	// mykola-ambar end
+	//
+
+
+	// skip until palette
+	while (true)
+	{
+		VoxChunk c{};
+		readin(&c, sizeof(c));
+		if (checkname(c.name, "RGBA"))
+		{
+			// reset back
+			in -= sizeof(c);
+			break;
+		}
+		readin(nullptr, c.numBytes);
+	}
+
+	auto palette = std::vector<KvxRgb>{};
+	palette.resize(256);
+	{
+		VoxChunk rgbaChunk{};
+		readin(&rgbaChunk, sizeof(rgbaChunk));
+		assert(checkname(rgbaChunk.name, "RGBA"));
+
+		static_assert(sizeof(VoxRgba) == 4);
+		auto allRgba = (const VoxRgba *)readin(nullptr, 256 * sizeof(VoxRgba));
+		for (int i = 0; i <= 254; i++)
+		{
+			palette[i + 1] = KvxRgb{ allRgba[i].r, allRgba[i].g, allRgba[i].b };
+		}
+	}
+
+
+	//
+	// mykola-ambar begin
+	//
+	//  Based on https://github.com/mykola-ambar 's VOX to KVX converter
+	// https://github.com/sirjuddington/SLADE/pull/1063
+	//
+
+	uint32_t *xoffsets = new uint32_t[width + 1];
+	uint16_t *xyoffsets = new uint16_t[width * (length + 1)];
+
+	auto out_data = std::vector<uint8_t>{};
+	size_t out_ptr = 0;
+
+	// skip, write at the end
+	out_ptr += sizeof(KvxHeader);
+	out_ptr += (width + 1) * sizeof(uint32_t);
+	out_ptr += width * (length + 1) * sizeof(uint16_t);
+
+	auto out_currentPos = [&out_ptr]()
+		{
+			return out_ptr;
+		};
+	auto out_write = [&out_data, &out_ptr](const void *data, const size_t sz)
+		{
+			if (out_data.size() < out_ptr + sz)
+			{
+				out_data.resize(out_ptr + sz);
+			}
+
+			memcpy(out_data.data() + out_ptr, data, sz);
+			out_ptr += sz;
+			assert(out_ptr <= out_data.size());
+		};
+
+	xoffsets[0] = out_currentPos() - sizeof(KvxHeader);
+
+	std::vector<uint8_t> post_colors;
+	post_colors.reserve(256);
+
+	for (uint32_t x = 0; x < width; x++)
+	{
+		xyoffsets[x * (length + 1)] = out_currentPos() - xoffsets[x] - sizeof(KvxHeader);
+		for (uint32_t y = 0; y < length; y++)
+		{
+			for (uint32_t z = 0; z < height; z++)
+			{
+				uint8_t color = voxels[AT(x, y, z)];
+				uint8_t visibility = visibilities[AT(x, y, z)];
+				bool at_end = (z == height - 1);
+
+				if (color != EMPTYVOXEL)
+				{
+					post_colors.push_back(color);
+				}
+
+				bool must_write_post = (!post_colors.empty()
+					&& (at_end
+						|| voxels[AT(x, y, z + 1)] == EMPTYVOXEL
+						|| visibilities[AT(x, y, z + 1)] != visibility
+						|| post_colors.size() == 255
+						));
+
+				if (must_write_post)
+				{
+					auto postHeader = KvxColumnPostHeader{
+						.topdelta = uint8_t(z - (post_colors.size() - 1)),
+						.size = uint8_t(post_colors.size()),
+						.culling = visibility,
+					};
+
+					out_write(&postHeader, sizeof(KvxColumnPostHeader));
+					out_write(post_colors.data(), post_colors.size());
+					post_colors.clear();
+				}
+			}
+			xyoffsets[x * (length + 1) + y + 1] = out_currentPos() - xoffsets[x] - sizeof(KvxHeader);
+		}
+		xoffsets[x + 1] = out_currentPos() - sizeof(KvxHeader);
+	}
+
+	uint32_t total_bytes = out_currentPos() - sizeof(uint32_t);
+
+	assert(palette.size() * sizeof(decltype(palette)::value_type) == 768);
+	out_write(palette.data(), 768);
+
+	auto kvxHeader = KvxHeader{
+		.total_bytes = total_bytes,
+		.width = width,
+		.length = length,
+		.height = height,
+		.pivot_x = width << 7,
+		.pivot_y = length << 7,
+		.pivot_z = height << 8
+	};
+
+	// out.seek(0, SEEK_SET);
+	out_ptr = 0;
+	out_write(&kvxHeader, sizeof(KvxHeader));
+	out_write(xoffsets, (width + 1) * sizeof(uint32_t));
+	out_write(xyoffsets, width * (length + 1) * sizeof(uint16_t));
+
+	delete[] xoffsets;
+	delete[] xyoffsets;
+
+	// 
+	// mykola-ambar end
+	// 
+
+	return out_data;
+
+#undef AT
+}
+
+FVoxel *R_LoadKVX(int lumpnum)
+{
+	auto lump = fileSystem.ReadFile(lumpnum);	// FileData adds an extra 0 byte to the end.
+	auto rawvoxel = lump.bytes();
+	int voxelsize = (int)(lump.size());
+
+	const char *name = fileSystem.GetFileFullName(lumpnum, false);
+	if (name && strstr(name, ".vox") && voxelsize > 0)
+	{
+		auto kvx = SLADE_voxToKvx(rawvoxel);
+		return R_LoadKVX_internal(kvx.data(), kvx.size(), lumpnum);
+	}
+
+	return R_LoadKVX_internal(rawvoxel, voxelsize, lumpnum);
+}
+
+#endif
 
 //==========================================================================
 //

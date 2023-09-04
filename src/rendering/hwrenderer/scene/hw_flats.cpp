@@ -48,6 +48,11 @@
 #include "hw_renderstate.h"
 #include "texturemanager.h"
 
+#if HAVE_RT
+#include "rt/rt_cvars.h"
+#include "rt/rt_state.h"
+#endif
+
 #ifdef _DEBUG
 CVAR(Int, gl_breaksec, -1, 0)
 #endif
@@ -304,6 +309,16 @@ void HWFlat::DrawFloodPlanes(HWDrawInfo *di, FRenderState &state)
 //==========================================================================
 void HWFlat::DrawFlat(HWDrawInfo *di, FRenderState &state, bool translucent)
 {
+#if HAVE_RT
+	auto rtexp = rtstate.push_type(RT_IsSectorExportable(sector, ceiling) ? RtPrim::ExportMap : RtPrim::Identity);
+    auto rttype = rtstate.push_type(
+        (hacktype & SSRF_PLANEHACK) || (hacktype & SSRF_FLOODHACK) ?
+        RtPrim::Ignored : RtPrim::Identity);
+    auto rtnorm = rtstate.push_type(ceiling ? RtPrim::Identity : RtPrim::ExportInvertNormals);
+    // sector is not unique -- but subsector is, hope that they are pushed in a certain order
+    auto rttemp = rtstate.push_uniqueid<RtManyPrimsPerId::Set1>(sector, ceiling ? 0 : 1);
+#endif
+
 #ifdef _DEBUG
 	if (sector->sectornum == gl_breaksec)
 	{
@@ -515,7 +530,11 @@ void HWFlat::ProcessSector(HWDrawInfo *di, sector_t * frontsector, int which)
 	//
 	//
 	//
+#if !HAVE_RT
 	if ((which & SSRF_RENDERFLOOR) && frontsector->floorplane.ZatPoint(vp.Pos) <= vp.Pos.Z && (!section || !(section->flags & FSection::DONTRENDERFLOOR)))
+#else
+	if ((which & SSRF_RENDERFLOOR) && (rt_nocull_flat || frontsector->floorplane.ZatPoint(vp.Pos) <= vp.Pos.Z ) && (!section || !(section->flags & FSection::DONTRENDERFLOOR)))
+#endif
 	{
 		// process the original floor first.
 
@@ -573,7 +592,11 @@ void HWFlat::ProcessSector(HWDrawInfo *di, sector_t * frontsector, int which)
 	//
 	// 
 	//
+#if !HAVE_RT
 	if ((which & SSRF_RENDERCEILING) && frontsector->ceilingplane.ZatPoint(vp.Pos) >= vp.Pos.Z && (!section || !(section->flags & FSection::DONTRENDERCEILING)))
+#else
+	if ((which & SSRF_RENDERCEILING) && (rt_nocull_flat || frontsector->ceilingplane.ZatPoint(vp.Pos) >= vp.Pos.Z) && (!section || !(section->flags & FSection::DONTRENDERCEILING)))
+#endif
 	{
 		// process the original ceiling first.
 
@@ -658,7 +681,11 @@ void HWFlat::ProcessSector(HWDrawInfo *di, sector_t * frontsector, int which)
 					double ff_top = rover->top.plane->ZatPoint(sector->centerspot);
 					if (ff_top < lastceilingheight)
 					{
+#if !HAVE_RT
 						if (vp.Pos.Z <= rover->top.plane->ZatPoint(vp.Pos))
+#else
+						if (rt_nocull_flat || (vp.Pos.Z <= rover->top.plane->ZatPoint(vp.Pos)))
+#endif
 						{
 							SetFrom3DFloor(rover, true, !!(rover->flags&FF_FOG));
 							Colormap.FadeColor = frontsector->Colormap.FadeColor;
@@ -672,7 +699,11 @@ void HWFlat::ProcessSector(HWDrawInfo *di, sector_t * frontsector, int which)
 					double ff_bottom = rover->bottom.plane->ZatPoint(sector->centerspot);
 					if (ff_bottom < lastceilingheight)
 					{
+#if !HAVE_RT
 						if (vp.Pos.Z <= rover->bottom.plane->ZatPoint(vp.Pos))
+#else
+						if (rt_nocull_flat || (vp.Pos.Z <= rover->bottom.plane->ZatPoint(vp.Pos)))
+#endif
 						{
 							SetFrom3DFloor(rover, false, !(rover->flags&FF_FOG));
 							Colormap.FadeColor = frontsector->Colormap.FadeColor;
@@ -698,7 +729,11 @@ void HWFlat::ProcessSector(HWDrawInfo *di, sector_t * frontsector, int which)
 					double ff_bottom = rover->bottom.plane->ZatPoint(sector->centerspot);
 					if (ff_bottom > lastfloorheight || (rover->flags&FF_FIX))
 					{
+#if !HAVE_RT
 						if (vp.Pos.Z >= rover->bottom.plane->ZatPoint(vp.Pos))
+#else
+						if (rt_nocull_flat || (vp.Pos.Z >= rover->bottom.plane->ZatPoint(vp.Pos)))
+#endif
 						{
 							SetFrom3DFloor(rover, false, !(rover->flags&FF_FOG));
 							Colormap.FadeColor = frontsector->Colormap.FadeColor;
@@ -719,7 +754,11 @@ void HWFlat::ProcessSector(HWDrawInfo *di, sector_t * frontsector, int which)
 					double ff_top = rover->top.plane->ZatPoint(sector->centerspot);
 					if (ff_top > lastfloorheight)
 					{
+#if !HAVE_RT
 						if (vp.Pos.Z >= rover->top.plane->ZatPoint(vp.Pos))
+#else
+						if (rt_nocull_flat || (vp.Pos.Z >= rover->top.plane->ZatPoint(vp.Pos)))
+#endif
 						{
 							SetFrom3DFloor(rover, true, !!(rover->flags&FF_FOG));
 							Colormap.FadeColor = frontsector->Colormap.FadeColor;

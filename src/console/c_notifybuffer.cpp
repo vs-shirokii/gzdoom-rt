@@ -123,6 +123,11 @@ void FNotifyBuffer::Draw()
 
 	lineadv = font->GetHeight ();
 
+#if HAVE_RT
+	int xsafe = 12;
+	int ysafe = 12;
+#endif
+
 	for (unsigned i = 0; i < Text.Size(); ++ i)
 	{
 		FNotifyText &notify = Text[i];
@@ -146,15 +151,25 @@ void FNotifyBuffer::Draw()
 
 			int scale = active_con_scaletext(twod, generic_ui);
 			if (!center)
+#if !HAVE_RT
 				DrawText(twod, font, color, 0, line, notify.Text.GetChars(),
+#else
+				DrawText(twod, font, color, xsafe, line + ysafe, notify.Text.GetChars(),
+#endif
 					DTA_VirtualWidth, twod->GetWidth() / scale,
 					DTA_VirtualHeight, twod->GetHeight() / scale,
 					DTA_KeepRatio, true,
 					DTA_Alpha, alpha, TAG_DONE);
 			else
+#if !HAVE_RT
 				DrawText(twod, font, color, (twod->GetWidth() -
 					font->StringWidth (notify.Text) * scale) / 2 / scale,
 					line, notify.Text.GetChars(),
+#else
+				DrawText(twod, font, color, (twod->GetWidth() -
+					font->StringWidth (notify.Text) * scale) / 2 / scale,
+					line + ysafe, notify.Text.GetChars(),
+#endif
 					DTA_VirtualWidth, twod->GetWidth() / scale,
 					DTA_VirtualHeight, twod->GetHeight() / scale,
 					DTA_KeepRatio, true,

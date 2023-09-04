@@ -58,7 +58,11 @@ CVAR(Bool,gl_mirrors,true,0)	// This is for debugging only!
 CVAR(Bool,gl_mirror_envmap, true, CVAR_GLOBALCONFIG|CVAR_ARCHIVE)
 CVAR(Bool, gl_seamless, false, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
 
+#if !HAVE_RT
 CUSTOM_CVAR(Int, r_mirror_recursions,4,CVAR_GLOBALCONFIG|CVAR_ARCHIVE)
+#else
+CUSTOM_CVAR(Int, r_mirror_recursions,0,CVAR_GLOBALCONFIG|CVAR_ARCHIVE)
+#endif
 {
 	if (self<0) self=0;
 	if (self>10) self=10;
@@ -120,9 +124,17 @@ CUSTOM_CVARD(Float, gl_texture_filter_anisotropic, 8.f, CVAR_ARCHIVE | CVAR_GLOB
 	screen->SetTextureFilterMode();
 }
 
+#if !HAVE_RT
 CUSTOM_CVARD(Int, gl_texture_filter, 4, CVAR_ARCHIVE|CVAR_GLOBALCONFIG|CVAR_NOINITCALL, "changes the texture filtering settings")
+#else
+CUSTOM_CVARD(Int, gl_texture_filter, 5, CVAR_ARCHIVE|CVAR_GLOBALCONFIG|CVAR_NOINITCALL, "changes the texture filtering settings")
+#endif
 {
+#if !HAVE_RT
 	if (self < 0 || self > 6) self=4;
+#else
+	if (self < 0 || self > 6) self=5;
+#endif
 	screen->SetTextureFilterMode();
 }
 

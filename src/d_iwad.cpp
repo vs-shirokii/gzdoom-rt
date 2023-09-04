@@ -50,6 +50,11 @@
 #include "findfile.h"
 #include "i_interface.h"
 
+#if HAVE_RT
+#include <filesystem>
+#include "rt/rt_cvars.h"
+#endif
+
 EXTERN_CVAR(Bool, queryiwad);
 EXTERN_CVAR(String, defaultiwad);
 EXTERN_CVAR(Bool, disableautoload)
@@ -530,6 +535,10 @@ void FIWadManager::ValidateIWADs()
 	}
 }
 
+#if HAVE_RT
+bool rt_isdoom2 = false;
+#endif
+
 //==========================================================================
 //
 // IdentifyVersion
@@ -723,7 +732,11 @@ int FIWadManager::IdentifyVersion (std::vector<std::string>&wadfiles, const char
 	int pick = 0;
 
 	// We got more than one so present the IWAD selection box.
+#if !HAVE_RT
 	if (picks.Size() > 1)
+#else
+	if( picks.Size() > 1 || cvar::rt_firststart ) // force launcher on the first run ...
+#endif
 	{
 		// Locate the user's prefered IWAD, if it was found.
 		if (defaultiwad[0] != '\0')
@@ -738,7 +751,9 @@ int FIWadManager::IdentifyVersion (std::vector<std::string>&wadfiles, const char
 				}
 			}
 		}
+#if !HAVE_RT
 		if (picks.Size() > 1)
+#endif
 		{
 			if (!havepicked)
 			{
@@ -748,6 +763,9 @@ int FIWadManager::IdentifyVersion (std::vector<std::string>&wadfiles, const char
 					WadStuff stuff;
 					stuff.Name = mIWadInfos[found.mInfoIndex].Name;
 					stuff.Path = ExtractFileBase(found.mFullPath.GetChars());
+#if HAVE_RT
+					stuff.Autoname = mIWadInfos[found.mInfoIndex].Autoname;
+#endif
 					wads.Push(stuff);
 				}
 				int flags = 0;;
@@ -824,6 +842,59 @@ int FIWadManager::IdentifyVersion (std::vector<std::string>&wadfiles, const char
 		}
 
 	}
+
+#if HAVE_RT
+	{
+		const auto& autoname = mIWadInfos[ picks[ pick ].mInfoIndex ].Autoname;
+
+		std::error_code ec;
+		const auto fileSize = std::filesystem::file_size( picks[ pick ].mFullPath.GetChars(), ec );
+
+		extern void RT_ShowWarningMessageBox( const char* );
+
+		auto l_showWarn = []( const FString& str ) {
+			RT_ShowWarningMessageBox( str.GetChars() );
+		};
+
+		if( autoname.CompareNoCase( "doom.id.doom2.commercial" ) == 0)
+		{
+			if( fileSize != 14604584 )
+			{
+				l_showWarn(
+				    "Please, use the original DOOM2.wad file from Steam:\n    "
+				    "The provided DOOM2.wad has failed a file check:\n    " +
+				    picks[ pick ].mFullPath +
+				    "\n\n\nLight data for ray tracing will not be available.\nExpect INCORRECT "
+				    "LIGHTING and a worse experience." );
+			}
+
+			rt_isdoom2 = true;
+		}
+		else if( autoname.CompareNoCase( "doom.id.doom1.ultimate" ) == 0 )
+		{
+			// TODO: remove when doom 1 is implemented
+			l_showWarn( "Doom (1993) is not supported.\n"
+			            "Only Doom II (1994) has the required light data for ray tracing.\n\n"
+			            "Expect INCORRECT LIGHTING." );
+
+			if( fileSize != 12408292 )
+			{
+				l_showWarn( "Please, use the original DOOM.wad file from Steam:\n    "
+				            "The provided DOOM.wad has failed a file check:\n    " +
+				            picks[ pick ].mFullPath +
+				            "\n\nLight data for ray tracing will not be available.\n"
+				            "Expect INCORRECT LIGHTING and a worse experience." );
+			}
+		}
+		else
+		{
+			l_showWarn( "Found unsupported .wad:\n    " + picks[ pick ].mFullPath +
+			            "\n\nLight data for ray tracing will not be available.\n"
+			            "Expect INCORRECT LIGHTING and a worse experience." );
+		}
+	}
+#endif
+
 	return picks[pick].mInfoIndex;
 }
 

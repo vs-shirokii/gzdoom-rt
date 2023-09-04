@@ -60,6 +60,12 @@
 #include "hw_renderstate.h"
 #include "quaternion.h"
 
+#if HAVE_RT
+#include "rt/rt_state.h"
+#include "rt/rt_cvars.h"
+EXTERN_CVAR(Bool, r_deathcamera)
+#endif
+
 extern TArray<spritedef_t> sprites;
 extern TArray<spriteframe_t> SpriteFrames;
 extern uint32_t r_renderercaps;
@@ -82,7 +88,11 @@ CVAR(Bool, gl_sprite_blend, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG);
 CVAR(Int, gl_spriteclip, 1, CVAR_ARCHIVE)
 CVAR(Float, gl_sclipthreshold, 10.0, CVAR_ARCHIVE)
 CVAR(Float, gl_sclipfactor, 1.8f, CVAR_ARCHIVE)
+#if !HAVE_RT
 CVAR(Int, gl_particles_style, 2, CVAR_ARCHIVE | CVAR_GLOBALCONFIG) // 0 = square, 1 = round, 2 = smooth
+#else
+CVAR(Int, gl_particles_style, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG) // 0 = square, 1 = round, 2 = smooth
+#endif
 CVAR(Int, gl_billboard_mode, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Bool, gl_billboard_faces_camera, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Bool, hw_force_cambbpref, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
@@ -100,6 +110,41 @@ CUSTOM_CVAR(Int, gl_fuzztype, 0, CVAR_ARCHIVE)
 
 void HWSprite::DrawSprite(HWDrawInfo *di, FRenderState &state, bool translucent)
 {
+#if HAVE_RT
+	assert(!lightlist);
+	const bool isfirstpersonviewer =
+		// if is a viewer
+		(actor && actor == di->Viewpoint.camera) &&
+		// from HWDrawInfo::PreparePlayerSprites
+		!(	(players[consoleplayer].cheats & CF_CHASECAM) ||
+			(r_deathcamera && di->Viewpoint.camera && di->Viewpoint.camera->health <= 0) );
+
+	auto rttype = rtstate.push_type(
+		isfirstpersonviewer ? RtPrim::FirstPersonViewer :
+		actor ? RtPrim::Identity :
+		RtPrim::Particle);
+	auto rtxexp = rtstate.push_type(
+		actor ? RtPrim::ExportInstance : RtPrim::Identity);
+	auto rttemp = rtstate.push_uniqueid(
+		actor
+		? static_cast<void*>(actor)
+		: static_cast<void*>(particle));
+
+	auto rtname = rtstate.push_exportinstance_name(
+		actor && (actor->sprite >= 0 && actor->sprite < sprites.SSize()) ? sprites[actor->sprite].name : nullptr,
+		actor ? actor->frame : 0
+	);
+	static_assert(RT_MAX_SPRITE_FRAMES == MAX_SPRITE_FRAMES, "change RT_MAX_SPRITE_FRAMES to match");
+
+	rtstate.m_lightlevel = actor && actor->Sector ? actor->Sector->GetSpriteLight() : 255;
+	defer{ rtstate.m_lightlevel = 255; };
+
+	if (actor)
+	{
+		rtstate.m_lastthingposition = FVector3{ actor->InterpolatedPosition(di->Viewpoint.TicFrac) };
+	}
+#endif
+
 	bool additivefog = false;
 	bool foglayer = false;
 	int rel = fullbright ? 0 : getExtraLight();
@@ -271,6 +316,17 @@ void HWSprite::DrawSprite(HWDrawInfo *di, FRenderState &state, bool translucent)
 		{
 			state.SetNormal(0, 0, 0);
 
+#if HAVE_RT
+			auto rtxexp2 = rtstate.push_type(RtPrim::ExportInvertNormals);
+
+			const DRotator rtangles = !actor ? DRotator{ nullAngle,nullAngle,nullAngle } :
+				cvar::rt_lerpmdlangle || (actor->renderflags & RF_INTERPOLATEANGLES)
+				? actor->InterpolatedAngles(di->Viewpoint.TicFrac)
+				: actor->Angles;
+			auto rtrot = rtstate.push_apply_spriterotation(
+				isfirstpersonviewer ? 0 : float(rtangles.Pitch.Radians()),
+				float(rtangles.Yaw.Radians()));
+#endif
 
 			if (screen->BuffersArePersistent())
 			{
@@ -771,11 +827,19 @@ void HWSprite::Process(HWDrawInfo *di, AActor* thing, sector_t * sector, area_t 
 		return;
 	}
 
+#if HAVE_RT // don't cull player model
+	const bool forceviewervisible = (viewmaster == camera && cvar::rt_withplayer);
+	const bool allowvisibilitycheck = !forceviewervisible;
+#endif
+
 	// Some added checks if the camera actor is not supposed to be seen. It can happen that some portal setup has this actor in view in which case it may not be skipped here
 	if (viewmaster == camera && !vp.showviewer)
 	{
 		DVector3 vieworigin = viewmaster->Pos();
 		if (thruportal == 1) vieworigin += di->Level->Displacements.getOffset(viewmaster->Sector->PortalGroup, sector->PortalGroup);
+#if HAVE_RT
+		if (allowvisibilitycheck)
+#endif
 		if (fabs(vieworigin.X - vp.ActorPos.X) < 2 && fabs(vieworigin.Y - vp.ActorPos.Y) < 2) return;
 	}
 	// Thing is invisible if close to the camera.
@@ -783,6 +847,9 @@ void HWSprite::Process(HWDrawInfo *di, AActor* thing, sector_t * sector, area_t 
 	{
 		DVector3 viewpos = viewmaster->InterpolatedPosition(vp.TicFrac);
 		if (thruportal == 1) viewpos += di->Level->Displacements.getOffset(viewmaster->Sector->PortalGroup, sector->PortalGroup);
+#if HAVE_RT
+		if (allowvisibilitycheck)
+#endif
 		if (fabs(viewpos.X - vp.Pos.X) < 32 && fabs(viewpos.Y - vp.Pos.Y) < 32) return;
 	}
 
@@ -793,6 +860,9 @@ void HWSprite::Process(HWDrawInfo *di, AActor* thing, sector_t * sector, area_t 
 		&& vp.Pos.Z >= thingpos.Z - 2 && vp.Pos.Z <= thingpos.Z + thing->Height + 2
 		&& !thing->Vel.isZero() && !modelframe) // exclude vertically moving objects from this check.
 	{
+#if HAVE_RT
+		if (allowvisibilitycheck)
+#endif
 		return;
 	}
 

@@ -1,28 +1,32 @@
-# Welcome to GZDoom!
+# GZDoom: Ray Traced
 
-[![Continuous Integration](https://github.com/ZDoom/gzdoom/actions/workflows/continuous_integration.yml/badge.svg)](https://github.com/ZDoom/gzdoom/actions/workflows/continuous_integration.yml)
+**GZDoom: Ray Traced** introduces a path tracing renderer to **GZDoom**, a Doom source port.
 
-## GZDoom is a modder-friendly OpenGL and Vulkan source port based on the DOOM engine
 
-Copyright (c) 1998-2023 ZDoom + GZDoom teams, and contributors
+## Local Build
 
-Doom Source (c) 1997 id Software, Raven Software, and contributors
+Windows
 
-Please see license files for individual contributor licenses
+1. Run `auto-setup-windows.cmd` to configure and build via CMake
+    * This will produce `build/RelWithDebInfo/gzdoom.exe` (and Visual Studio solution `build/GZDoom.sln`)
+1. Copy from a release package into `build/RelWithDebInfo/` folder:
+    1. `rt` folder
+    1. `libsndfile-1.dll`
+    1. `openal32.dll`
+    1. `zmusic.dll`
+1. Run `build/RelWithDebInfo/gzdoom.exe`
 
-Special thanks to Coraline of the EDGE team for allowing us to use her [README.md](https://github.com/3dfxdev/EDGE/blob/master/README.md) as a template for this one.
+##
 
-### Licensed under the GPL v3
-##### https://www.gnu.org/licenses/quick-guide-gplv3.en.html
+Licensed under the [GNU General Public License Version 3](LICENSE).
+Copyright (c) 1998-2023 ZDoom + GZDoom teams, and contributors.
+Doom Source (c) 1997 id Software, Raven Software, and contributors.
+Please see license files for individual contributor licenses.
+
 ---
 
-## How to build GZDoom
-
-To build GZDoom, please see the [wiki](https://zdoom.org/wiki/) and see the "Programmer's Corner" on the bottom-right corner of the page to build for your platform.
-
-# Resources
-- https://zdoom.org/ - Home Page
-- https://forum.zdoom.org/ - Forum
-- https://zdoom.org/wiki/ - Wiki
-- https://dsc.gg/zdoom - Discord Server
-- https://docs.google.com/spreadsheets/d/1pvwXEgytkor9SClCiDn4j5AH7FedyXS-ocCbsuQIXDU/edit?usp=sharing - Translation sheet (Google Docs)
+[Home Page](https://zdoom.org/) |
+[Forum](https://forum.zdoom.org/) |
+[Wiki](https://zdoom.org/wiki/) |
+[Discord Server](https://dsc.gg/zdoom) |
+[Translation sheet (Google Docs)](https://docs.google.com/spreadsheets/d/1pvwXEgytkor9SClCiDn4j5AH7FedyXS-ocCbsuQIXDU/edit?usp=sharing)

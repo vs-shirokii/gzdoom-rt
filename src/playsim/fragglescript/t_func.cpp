@@ -346,7 +346,7 @@ static PClassActor * T_GetAmmo(const svalue_t &t)
 // of sound management.
 //
 //==========================================================================
-static FSoundID T_FindSound(const char * name)
+FSoundID T_FindSound(const char * name)
 {
 	char buffer[40];
 	FSoundID so=S_FindSound(name);

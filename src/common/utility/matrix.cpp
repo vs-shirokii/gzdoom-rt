@@ -75,6 +75,29 @@ VSMatrix::multMatrix(const FLOATTYPE *aMatrix)
 	memcpy(mMatrix, res, 16 * sizeof(FLOATTYPE));
 }
 
+#if HAVE_RT
+// copy of VSMatrix::multMatrix(const FLOATTYPE *aMatrix)
+VSMatrix VSMatrix::smultMatrix(const float* leftMatrix, const float* rightMatrix)
+{
+	VSMatrix r{};
+	FLOATTYPE* res = r.mMatrix;
+
+	for (int i = 0; i < 4; ++i)
+	{
+		for (int j = 0; j < 4; ++j)
+		{
+			res[j * 4 + i] = 0.0f;
+			for (int k = 0; k < 4; ++k)
+			{
+				res[j * 4 + i] += leftMatrix[k * 4 + i] * rightMatrix[j * 4 + k];
+			}
+		}
+	}
+
+	return r;
+}
+#endif
+
 #ifdef USE_DOUBLE
 // gl MultMatrix implementation
 void

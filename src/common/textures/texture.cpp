@@ -367,7 +367,9 @@ FTextureBuffer FTexture::CreateTexBuffer(int translation, int flags)
 			bmp.Blit(exx, exx, Pixels);
 			if (IsLuminosityTranslation(translation))
 			{
+#if !HAVE_RT // removed, as it leaves some textures darker but brightens others in UI...
 				V_ApplyLuminosityTranslation(LuminosityTranslationDesc::fromInt(translation), buffer, W * H);
+#endif
 			}
 
 			if (remap == nullptr)

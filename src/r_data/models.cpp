@@ -189,6 +189,16 @@ void RenderModel(FModelRenderer *renderer, float x, float y, float z, FSpriteMod
 
 	float orientation = scaleFactorX * scaleFactorY * scaleFactorZ;
 
+#if HAVE_RT // HACKHACK flip y/z axis for RT
+    constexpr static float flipYZ[] = {
+		1,0,0,0,
+		0,0,1,0,
+		0,1,0,0,
+		0,0,0,1,
+	};
+	objectToWorldMatrix = VSMatrix::smultMatrix(flipYZ, objectToWorldMatrix.get());
+#endif
+
 	renderer->BeginDrawModel(actor->RenderStyle, smf, objectToWorldMatrix, orientation < 0);
 	RenderFrameModels(renderer, actor->Level, smf, actor->state, actor->tics, translation, actor);
 	renderer->EndDrawModel(actor->RenderStyle, smf);
@@ -583,6 +593,17 @@ void InitModels()
 	Models.DeleteAndClear();
 	SpriteModelFrames.Clear();
 	SpriteModelHash.Clear();
+
+#if HAVE_RT
+	if (Voxels.Size() > 0)
+	{
+		extern void RT_ShowWarningMessageBox(const char *);
+		RT_ShowWarningMessageBox(
+			"Found .kvx / .vox voxel models.\n"
+			"Expect REALLY BAD PERFORMANCE.\n\n"
+			"Please, convert to .gltf using \'-vox2gltf\' argument");
+	}
+#endif
 
 	// First, create models for each voxel
 	for (unsigned i = 0; i < Voxels.Size(); i++)

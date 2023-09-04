@@ -222,7 +222,11 @@ void SystemBaseFrameBuffer::SetWindowSize(int w, int h)
 	}
 	else
 	{
+#if !HAVE_RT
 		LONG style = WS_VISIBLE | WS_CLIPSIBLINGS | WS_OVERLAPPEDWINDOW;
+#else // less flickering
+		LONG style = WS_VISIBLE | WS_CLIPSIBLINGS| WS_CLIPCHILDREN | WS_OVERLAPPEDWINDOW;
+#endif
 		LONG exStyle = WS_EX_WINDOWEDGE;
 		SetWindowLong(mainwindow.GetHandle(), GWL_STYLE, style);
 		SetWindowLong(mainwindow.GetHandle(), GWL_EXSTYLE, exStyle);
@@ -300,10 +304,21 @@ void SystemBaseFrameBuffer::PositionWindow(bool fullscreen, bool initialcall)
 		}
 	}
 
+#if !HAVE_RT
 	ShowWindow(mainwindow.GetHandle(), SW_SHOW);
+#else // show only after full resize
+	if (!initialcall) // initial is handled inside rt_main.cpp
+	{
+		ShowWindow(mainwindow.GetHandle(), SW_SHOW);
+	}
+#endif
 
 	GetWindowRect(mainwindow.GetHandle(), &r);
+#if !HAVE_RT
 	style = WS_VISIBLE | WS_CLIPSIBLINGS;
+#else // show only after full resize, less flickering
+	style = WS_CLIPSIBLINGS | WS_CLIPCHILDREN;
+#endif
 	exStyle = 0;
 
 	if (fullscreen)
@@ -336,6 +351,18 @@ void SystemBaseFrameBuffer::PositionWindow(bool fullscreen, bool initialcall)
 	}
 	m_Fullscreen = fullscreen;
 	SetSize(GetClientWidth(), GetClientHeight());
+
+#if HAVE_RT // show only after full resize
+	if (!initialcall) // initial is handled inside rt_main.cpp
+	{
+		ShowWindow(mainwindow.GetHandle(), SW_SHOW);
+		SetForegroundWindow(mainwindow.GetHandle());
+		// because GetForegroundWindow potentially was not 'mainwindow',
+		// some logic might fail to set WinAPI cursor state, do it here: hide if hidden, show if shown
+		extern void RT_EnsureCursorState();
+		RT_EnsureCursorState();
+	}
+#endif
 }
 
 //==========================================================================
@@ -365,10 +392,12 @@ SystemBaseFrameBuffer::~SystemBaseFrameBuffer()
 {
 	if (!m_Fullscreen) SaveWindowedPos();
 
+#if !HAVE_RT // reduce window changes at the end
 	ShowWindow (mainwindow.GetHandle(), SW_SHOW);
 	SetWindowLong(mainwindow.GetHandle(), GWL_STYLE, WS_VISIBLE | WS_CLIPSIBLINGS | WS_OVERLAPPEDWINDOW);
 	SetWindowLong(mainwindow.GetHandle(), GWL_EXSTYLE, WS_EX_WINDOWEDGE);
 	SetWindowPos(mainwindow.GetHandle(), 0, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+#endif
 
 	static_cast<Win32BaseVideo *>(Video)->Shutdown();
 }

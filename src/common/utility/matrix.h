@@ -53,6 +53,9 @@ class VSMatrix {
 		{
 			multMatrix(aMatrix.mMatrix);
 		}
+#if HAVE_RT
+		static VSMatrix smultMatrix(const float* leftMatrix, const float* rightMatrix);
+#endif
 		void multQuaternion(const TVector4<FLOATTYPE>& q);
 		void loadMatrix(const FLOATTYPE *aMatrix);
 #ifdef USE_DOUBLE

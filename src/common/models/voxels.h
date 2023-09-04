@@ -47,6 +47,9 @@ public:
 	uint8_t *GetSlabData(bool wantpaletted) const;
 
 	friend FVoxel *R_LoadKVX(int lumpnum);
+#if HAVE_RT // .vox support
+	friend FVoxel *R_LoadKVX_internal(const uint8_t *rawvoxel, int voxelsize, int lumpnum);
+#endif
 	friend struct FVoxel;
 };
 

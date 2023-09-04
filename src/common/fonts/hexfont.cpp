@@ -92,6 +92,9 @@ struct HexDataSource
 		{
 			double lum = i == 1 ? 0.01 : 0.5 + (i - 2) * (0.5 / 17.);
 			uint8_t lumb = (uint8_t(lum * 255));
+#if HAVE_RT // make the newconsolefont more contrast
+			lumb = lumb > 100 ? 255 : lumb;
+#endif
 
 			ConsolePal[i] = PalEntry(255, lumb, lumb, lumb);
 			lumb = i * 255 / 17;

@@ -43,6 +43,10 @@
 #include "r_videoscale.h"
 #include "v_draw.h"
 
+#if HAVE_RT
+#include "rt/rt_state.h"
+#endif
+
 //===========================================================================
 // 
 // Draws the 2D stuff. This is the version for OpenGL 3 and later.
@@ -59,6 +63,10 @@ void Draw2D(F2DDrawer* drawer, FRenderState& state)
 
 void Draw2D(F2DDrawer* drawer, FRenderState& state, int x, int y, int width, int height)
 {
+#if HAVE_RT
+		auto rttemp = rtstate.push_uniqueid(drawer);
+#endif
+
 	twoD.Clock();
 
 	state.SetViewport(x, y, width, height);

@@ -43,6 +43,271 @@
 #pragma warning(disable:4244) // warning C4244: conversion from 'double' to 'float', possible loss of data
 #endif
 
+#if HAVE_RT
+    #define VOXEL_TO_GLTF 1
+#endif
+
+#ifdef VOXEL_TO_GLTF
+#include "m_argv.h"
+#include "printf.h"
+
+#include <filesystem>
+#include <fstream>
+#include <span>
+
+#include <cgltf/cgltf.h>
+
+#define CGLTF_WRITE_IMPLEMENTATION
+#include <cgltf/cgltf_write.h>
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb/stb_image_write.h>
+
+auto rt_make_gltf_path( const char* folder, const char* name ) -> std::filesystem::path
+{
+    return std::filesystem::path{ folder } / ( std::string{ name } + ".gltf" );
+}
+
+auto rt_make_material_name( const char* name ) -> std::string
+{
+    return "vx_" + std::string{ name };
+}
+
+void rt_export_to_gltf( const char*                     folder,
+                        const char*                     name,
+                        const std::span< FModelVertex > verts,
+                        const std::span< uint32_t >     indices,
+                        const std::span< uint8_t >      imageData )
+{
+    auto materialname              = rt_make_material_name( name );
+    auto texture_filename_relative = materialname + ".tga";
+
+    constexpr int NEAREST_FILTER = 9728;
+    constexpr int WRAP_REPEAT    = 10497;
+
+    cgltf_sampler sampler = {
+        .name       = nullptr,
+        .mag_filter = NEAREST_FILTER,
+        .min_filter = NEAREST_FILTER,
+        .wrap_s     = WRAP_REPEAT,
+        .wrap_t     = WRAP_REPEAT,
+    };
+
+    {
+        auto pt = ( std::filesystem::path{ folder } / texture_filename_relative ).string();
+
+        assert( imageData.size_bytes() == 16 * 16 * 3 );
+        stbi_write_tga( pt.c_str(), 16, 16, 3, imageData.data() );
+    }
+
+    cgltf_image image = {
+        .name = materialname.data(),
+        .uri  = texture_filename_relative.data(),
+    };
+
+    cgltf_texture texture = {
+        .image   = &image,
+        .sampler = &sampler,
+    };
+    
+    cgltf_material material = {
+        .name                       = materialname.data(),
+        .has_pbr_metallic_roughness = true,
+        .pbr_metallic_roughness =
+            cgltf_pbr_metallic_roughness{
+                .base_color_texture = cgltf_texture_view{ .texture = &texture, .texcoord = 0, .scale = 1.0f, },
+                .metallic_roughness_texture = {},
+                .base_color_factor          = { 1.0f, 1.0f, 1.0f, 1.0f },
+                .metallic_factor            = 0.0f,
+                .roughness_factor           = 1.0f,
+            },
+    };
+
+    cgltf_buffer      buf = {};
+    cgltf_buffer_view bufviews[ 2 ]{};
+
+    const auto binpath = rt_make_gltf_path( folder, name ).replace_extension( ".bin" );
+    const auto binuri  = binpath.filename().string();
+    {
+        auto bin = std::ofstream{ binpath, std::ios::out | std::ios::trunc | std::ios::binary };
+
+        size_t vert_offset  = 0;
+        size_t vert_size    = 0;
+        size_t index_offset = 0;
+        size_t index_size   = 0;
+
+        {
+            bin.write( reinterpret_cast< const char* >( verts.data() ),
+                       std::streamsize( verts.size_bytes() ) );
+            vert_offset = 0;
+            vert_size   = verts.size_bytes();
+        }
+        {
+            bin.write( reinterpret_cast< const char* >( indices.data() ),
+                       std::streamsize( indices.size_bytes() ) );
+            index_offset = vert_size;
+            index_size   = indices.size_bytes();
+        }
+
+        buf = cgltf_buffer{
+            .name = nullptr,
+            .size = vert_size + index_size,
+            .uri  = const_cast< char* >( binuri.c_str() ),
+        };
+
+    #define BUFFER_VIEW_VERTS 0
+        bufviews[ BUFFER_VIEW_VERTS ] = cgltf_buffer_view{
+            .name   = nullptr,
+            .buffer = &buf,
+            .offset = vert_offset,
+            .size   = vert_size,
+            .stride = sizeof( FModelVertex ),
+            .type   = cgltf_buffer_view_type_vertices,
+        };
+    #define BUFFER_VIEW_INDEX 1
+        bufviews[ BUFFER_VIEW_INDEX ] = cgltf_buffer_view{
+            .name   = nullptr,
+            .buffer = &buf,
+            .offset = index_offset,
+            .size   = index_size,
+            .stride = sizeof( uint32_t ),
+            .type   = cgltf_buffer_view_type_indices,
+        };
+    }
+
+    cgltf_accessor accessors[] = {
+    #define ACCESSOR_POSITION 0
+        {
+            .component_type = cgltf_component_type_r_32f,
+            .type           = cgltf_type_vec3,
+            .offset         = offsetof( FModelVertex, x ),
+            .count          = verts.size(),
+            .stride         = sizeof( FModelVertex ),
+            .buffer_view    = &bufviews[ BUFFER_VIEW_VERTS ],
+        },
+    #define ACCESSOR_TEXCOORD 1
+        {
+            .component_type = cgltf_component_type_r_32f,
+            .type           = cgltf_type_vec2,
+            .offset         = offsetof( FModelVertex, u ),
+            .count          = verts.size(),
+            .stride         = sizeof( FModelVertex ),
+            .buffer_view    = &bufviews[ BUFFER_VIEW_VERTS ],
+        },
+    #define ACCESSOR_INDEX 2
+        {
+            .component_type = cgltf_component_type_r_32u,
+            .type           = cgltf_type_scalar,
+            .offset         = 0,
+            .count          = indices.size(),
+            .stride         = sizeof( uint32_t ),
+            .buffer_view    = &bufviews[ BUFFER_VIEW_INDEX ],
+        },
+    };
+
+    cgltf_attribute vert_attribs[] = {
+        {
+            .name  = const_cast< char* >( "POSITION" ),
+            .type  = cgltf_attribute_type_position,
+            .index = 0,
+            .data  = &accessors[ ACCESSOR_POSITION ],
+        },
+        {
+            .name  = const_cast< char* >( "TEXCOORD_0" ),
+            .type  = cgltf_attribute_type_texcoord,
+            .index = 0,
+            .data  = &accessors[ ACCESSOR_TEXCOORD ],
+        },
+    };
+
+    cgltf_primitive primitive = {
+        .type             = cgltf_primitive_type_triangles,
+        .indices          = &accessors[ ACCESSOR_INDEX ],
+        .material         = &material,
+        .attributes       = vert_attribs,
+        .attributes_count = std::size( vert_attribs ),
+    };
+
+    auto name_alloc = std::string{ name };
+
+    cgltf_mesh mesh = {
+        .name             = name_alloc.data(),
+        .primitives       = &primitive,
+        .primitives_count = 1,
+    };
+
+    #define GLTF_MATRIX_IDENTITY 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1
+
+    cgltf_node node = {
+        .name            = const_cast< char* >( "main" ),
+        .parent          = nullptr,
+        .children        = nullptr,
+        .children_count  = 0,
+        .mesh            = &mesh,
+        .has_translation = 1,
+        .has_rotation    = 1,
+        .has_scale       = 1,
+        .has_matrix      = 0,
+        .translation     = { 0, 0, 0 },
+        .rotation        = { 0, 0, 1, 0 }, // rotate 180
+        .scale           = { 1, 1, 1 },
+    };
+
+    cgltf_node* scene_nodes[] = { &node };
+
+    cgltf_scene scene = {
+        .name        = const_cast< char* >( "default" ),
+        .nodes       = scene_nodes,
+        .nodes_count = std::size( scene_nodes ),
+    };
+
+    cgltf_data data = {
+        .asset =
+            cgltf_asset{
+                .copyright   = nullptr,
+                .generator   = const_cast< char* >( "GZDOOM" ),
+                .version     = const_cast< char* >( "2.0" ),
+                .min_version = nullptr,
+            },
+        .meshes             = &mesh,
+        .meshes_count       = 1,
+        .materials          = &material,
+        .materials_count    = 1,
+        .accessors          = accessors,
+        .accessors_count    = std::size( accessors ),
+        .buffer_views       = bufviews,
+        .buffer_views_count = std::size( bufviews ),
+        .buffers            = &buf,
+        .buffers_count      = 1,
+        .images             = &image,
+        .images_count       = 1,
+        .textures           = &texture,
+        .textures_count     = 1,
+        .samplers           = &sampler,
+        .samplers_count     = 1,
+        .nodes              = &node,
+        .nodes_count        = 1,
+        .scenes             = &scene,
+        .scenes_count       = 1,
+        .scene              = &scene,
+    };
+
+    const auto filename = rt_make_gltf_path( folder, name ).string();
+
+    constexpr cgltf_options defaultoptions = {};
+
+    cgltf_result result = cgltf_write_file( &defaultoptions, filename.c_str(), &data );
+    if( result != cgltf_result_success )
+    {
+        Printf( PRINT_HIGH,
+                "Failed exporting VOXEL to GLTF (error code %i): %s\n",
+                int( result ),
+                name );
+    }
+}
+
+#endif
+
 //===========================================================================
 //
 // Creates a 16x16 texture from the palette so that we can
@@ -95,9 +360,15 @@ PalettedPixels FVoxelTexture::CreatePalettedPixels(int conversion, int frame)
 		for(int i=0;i<256;i++, pp+=3)
 		{
 			PalEntry pe;
+#if !HAVE_RT // .vox support
 			pe.r = (pp[0] << 2) | (pp[0] >> 4);
 			pe.g = (pp[1] << 2) | (pp[1] >> 4);
 			pe.b = (pp[2] << 2) | (pp[2] >> 4);
+#else
+			pe.r = pp[0];
+			pe.g = pp[1];
+			pe.b = pp[2];
+#endif
 			// Alphatexture handling is just for completeness, but rather unlikely to be used ever.
 			Pixels[i] = conversion == luminance ? pe.r : ColorMatcher.Pick(pe);
 
@@ -134,9 +405,15 @@ int FVoxelTexture::CopyPixels(FBitmap *bmp, int conversion, int frame)
 		for(int i=0;i<256;i++, pp+=3)
 		{
 			bitmap[i] = (uint8_t)i;
+#if !HAVE_RT // .vox support
 			pe[i].r = (pp[0] << 2) | (pp[0] >> 4);
 			pe[i].g = (pp[1] << 2) | (pp[1] >> 4);
 			pe[i].b = (pp[2] << 2) | (pp[2] >> 4);
+#else
+			pe[i].r = pp[0];
+			pe[i].g = pp[1];
+			pe[i].b = pp[2];
+#endif
 			pe[i].a = 255;
 		}
 	}
@@ -163,7 +440,60 @@ FVoxelModel::FVoxelModel(FVoxel *voxel, bool owned)
 {
 	mVoxel = voxel;
 	mOwningVoxel = owned;
+#if !HAVE_RT
 	mPalette = TexMan.AddGameTexture(MakeGameTexture(new FImageTexture(new FVoxelTexture(voxel)), nullptr, ETextureType::Override));
+#else
+	auto append = []<size_t N>(char(&str)[N], const char *toappend)
+	{
+		strncat_s(str, std::size(str), toappend, 9);
+		str[std::size(str) - 1] = '\0';
+	};
+	auto removelastchar = []<size_t N>(char(&str)[N])
+	{
+		const size_t lastcharid = strnlen(str, std::size(str));
+		str[lastcharid > 0 ? lastcharid - 1 : 0] = '\0';
+	};
+
+	// need a name for the texture to export
+	char texname[16] = "vx_";
+	append(texname, fileSystem.GetFileShortName(voxel->LumpNum));
+	// last char is a frame index; remove it, assuming that a model has identical palette across its frames
+	removelastchar(texname);
+	mPalette = TexMan.AddGameTexture(MakeGameTexture(new FImageTexture(new FVoxelTexture(voxel)), texname, ETextureType::Override));
+#endif
+
+#ifdef VOXEL_TO_GLTF
+    if( Args->CheckParm( "-vox2gltf" ) > 0 )
+    {
+        const char* folder    = "vox2gltf";
+        const char* shortname = voxel ? fileSystem.GetFileShortName( voxel->LumpNum ) : nullptr;
+        shortname             = shortname && shortname[ 0 ] != '\0' ? shortname : nullptr;
+
+        if( shortname && !std::filesystem::exists( rt_make_gltf_path( folder, shortname ) ) )
+        {
+            std::error_code ec;
+            std::filesystem::create_directory( folder, ec );
+
+            Initialize();
+
+            if( mVertices.Size() > 0 )
+            {
+                rt_export_to_gltf( folder,
+                                   shortname,
+                                   std::span{ mVertices.data(), mVertices.size() },
+                                   std::span{ mIndices.data(), mIndices.size() },
+                                   std::span{ voxel->Palette.data(), voxel->Palette.size() } );
+            }
+
+            // delete our temporary buffers
+            mNumIndices = 0;
+            mVertices.Clear();
+            mIndices.Clear();
+            mVertices.ShrinkToFit();
+            mIndices.ShrinkToFit();
+        }
+    }
+#endif
 }
 
 //===========================================================================

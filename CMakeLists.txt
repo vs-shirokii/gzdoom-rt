@@ -43,7 +43,15 @@ if (NOT VCPKG_TOOLCHAIN)
 	set(VCPKG_MANIFEST_FEATURES)
 endif()
 
-set(CMAKE_CXX_STANDARD 17)
+
+option( HAVE_RT "Enable RayTracing support" ON )
+
+
+if( HAVE_RT )
+	set(CMAKE_CXX_STANDARD 20)
+else()
+	set(CMAKE_CXX_STANDARD 17)
+endif()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF) 
 
@@ -155,7 +163,11 @@ IF( NOT CMAKE_BUILD_TYPE )
 ENDIF()
 
 set( ZDOOM_OUTPUT_DIR ${CMAKE_BINARY_DIR} CACHE PATH "Directory where zdoom.pk3 and the executable will be created." )
-set( ZDOOM_EXE_NAME "gzdoom" CACHE FILEPATH "Name of the executable to create" )
+if( HAVE_RT )
+	set( ZDOOM_EXE_NAME "gzdoom" CACHE FILEPATH "Name of the executable to create" )
+else()
+	set( ZDOOM_EXE_NAME "gzdoom-rt" CACHE FILEPATH "Name of the executable to create" )
+endif()
 if( MSVC )
 	# Allow the user to use ZDOOM_OUTPUT_DIR as a single release point.
 	# Use zdoom, zdoomd, zdoom64, and zdoomd64 for the binary names
@@ -238,8 +250,8 @@ if( ${TARGET_ARCHITECTURE} MATCHES "x86_64" )
 	set( HAVE_VM_JIT ON )
 endif()
 
-option (HAVE_VULKAN "Enable Vulkan support" ON)
-option (HAVE_GLES2 "Enable GLES2 support" ON)
+option (HAVE_VULKAN "Enable Vulkan support" OFF)
+option (HAVE_GLES2 "Enable GLES2 support" OFF)
 
 # no, we're not using external asmjit for now, we made too many modifications to our's.
 # if the asmjit author uses our changes then we'll update this.
@@ -257,6 +269,12 @@ if( MSVC )
 	# Function-level linking
 	# Disable run-time type information
 	set( ALL_C_FLAGS "/GF /Gy /permissive-" )
+
+	if ( HAVE_RT )
+		set( ALL_C_FLAGS "${ALL_C_FLAGS} /DHAVE_RT=1" )
+	else()
+		set( ALL_C_FLAGS "${ALL_C_FLAGS} /DHAVE_RT=0" )
+	endif()
 
 	if ( HAVE_VULKAN )
 		set( ALL_C_FLAGS "${ALL_C_FLAGS} /DHAVE_VULKAN" )
@@ -290,6 +308,8 @@ if( MSVC )
 else()
 	set( REL_LINKER_FLAGS "" )
 	set( ALL_C_FLAGS "-ffp-contract=off" )
+	
+	set( ALL_C_FLAGS "${ALL_C_FLAGS} /DHAVE_RT=0" )
 
 	if ( HAVE_VULKAN )
 		set( ALL_C_FLAGS "${ALL_C_FLAGS} -DHAVE_VULKAN" )

@@ -330,7 +330,11 @@ void OnMenuOpen(bool makeSound)
 //
 //==========================================================================
 
+#if !HAVE_RT
 CUSTOM_CVAR(Float, dimamount, -1.f, CVAR_ARCHIVE)
+#else
+CUSTOM_CVAR(Float, dimamount, 0.f, CVAR_ARCHIVE)
+#endif
 {
 	if (self < 0.f && self != -1.f)
 	{
@@ -398,13 +402,28 @@ CCMD (menu_quit)
 		}
 		else
 		{
+#if !HAVE_RT
 			EndString.Format("%s\n\n%s", GStrings(msg + 1), GStrings("DOSY"));
+#else
+			auto prompt = FString{ GStrings("DOSY") };
+			// HACKHACK remove parenthesis
+			if (prompt.Len() > 0)
+			{
+				if (prompt[0] == '(' && prompt[prompt.Len() - 1] == ')')
+				{
+					prompt.Remove(prompt.Len() - 1, 1);
+					prompt.Remove(0, 1);
+				}
+			}
+			EndString.Format("%s\n\n\n%s", GStrings(msg + 1), prompt.GetChars());
+#endif
 		}
 	}
 	else EndString = gameinfo.quitmessages[messageindex];
 
 	DMenu *newmenu = CreateMessageBoxMenu(CurrentMenu, EndString.GetChars(), 0, false, NAME_None, []()
 	{
+#if !HAVE_RT // faster quit
 		if (!netgame)
 		{
 			if (gameinfo.quitSound.IsNotEmpty())
@@ -413,6 +432,7 @@ CCMD (menu_quit)
 				I_WaitVBL(105);
 			}
 		}
+#endif
 		M_Quit();
 	});
 

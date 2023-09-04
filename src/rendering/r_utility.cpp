@@ -228,7 +228,11 @@ void R_SetViewSize (int blocks)
 
 void R_SetWindow (FRenderViewpoint &viewpoint, FViewWindow &viewwindow, int windowSize, int fullWidth, int fullHeight, int stHeight, bool renderingToCanvas)
 {
+#if !HAVE_RT
 	if (windowSize >= 11)
+#else
+	if (true)
+#endif
 	{
 		viewwidth = fullWidth;
 		freelookviewheight = viewheight = fullHeight;
@@ -382,6 +386,7 @@ double R_GetGlobVis(const FViewWindow &viewwindow, double vis)
 //
 //==========================================================================
 
+#if !HAVE_RT
 CUSTOM_CVAR (Int, screenblocks, 10, CVAR_ARCHIVE)
 {
 	if (self > 12)
@@ -391,6 +396,17 @@ CUSTOM_CVAR (Int, screenblocks, 10, CVAR_ARCHIVE)
 	else
 		R_SetViewSize (self);
 }
+#else // 10 - status bar, 11 - minimal, 12 - none
+CUSTOM_CVAR (Int, screenblocks, 11, CVAR_ARCHIVE)
+{
+	if (self > 12)
+		self = 12;
+	else if (self < 10)
+		self = 10;
+	else
+		R_SetViewSize(self);
+}
+#endif
 
 //==========================================================================
 //
@@ -462,6 +478,11 @@ bool P_NoInterpolation(player_t const *player, AActor const *actor)
 // R_InterpolateView
 //
 //==========================================================================
+
+#if HAVE_RT
+EXTERN_CVAR(Bool, freelook);
+EXTERN_CVAR(Bool, freelook0_pitch0);
+#endif
 
 void R_InterpolateView (FRenderViewpoint &viewpoint, player_t *player, double Frac, InterpolationViewer *iview)
 {
@@ -565,6 +586,12 @@ void R_InterpolateView (FRenderViewpoint &viewpoint, player_t *player, double Fr
 		viewpoint.Angles.Yaw = (oviewangle + deltaangle(oviewangle, nviewangle) * Frac).Normalized180();
 		viewpoint.Angles.Roll = (iview->Old.Angles.Roll + deltaangle(iview->Old.Angles.Roll, iview->New.Angles.Roll) * Frac).Normalized180();
 	}
+#if HAVE_RT
+	if (!freelook && freelook0_pitch0)
+	{
+		viewpoint.Angles.Pitch = DAngle::fromBam(0);
+	}
+#endif
 
 	// [MR] Apply the view angles as an offset if ABSVIEWANGLES isn't specified.
 	if (!(viewpoint.camera->flags8 & MF8_ABSVIEWANGLES))

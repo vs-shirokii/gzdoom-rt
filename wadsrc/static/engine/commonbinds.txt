@@ -20,17 +20,13 @@ enter invuse
 = sizeup
 shift +speed
 mouse1 +attack
-capslock "toggle cl_run"
 f1 menu_help
 f2 menu_save
 f3 menu_load
 f4 menu_options
-f5 menu_display
 f6 quicksave
-f7 menu_endgame
 f8 togglemessages
 f9 quickload
-f11 bumpgamma
 f10 menu_quit
 tab togglemap
 pause pause

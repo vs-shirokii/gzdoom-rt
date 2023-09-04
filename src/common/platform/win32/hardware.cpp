@@ -47,6 +47,9 @@
 #ifdef HAVE_VULKAN
 #include "win32vulkanvideo.h"
 #endif
+#if HAVE_RT
+#include "win32rtvideo.h"
+#endif
 #include "engineerrors.h"
 #include "i_system.h"
 #include "i_mainwindow.h"
@@ -90,6 +93,7 @@ void I_InitGraphics ()
 		// are the active app. Huh?
 	}
 
+#if !HAVE_RT
 #ifdef HAVE_VULKAN
 	if (V_GetBackend() == 1)
 	{
@@ -109,6 +113,9 @@ void I_InitGraphics ()
 	{
 		Video = new Win32GLVideo();
 	}
+#else
+	Video = new Win32RTVideo();
+#endif
 
 	// we somehow STILL don't have a display!!
 	if (Video == NULL)

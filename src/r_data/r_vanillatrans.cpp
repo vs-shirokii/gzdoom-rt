@@ -45,7 +45,11 @@
 #endif
 
 bool r_UseVanillaTransparency;
+#if !HAVE_RT
 CVAR (Int, r_vanillatrans, 0, CVAR_ARCHIVE)
+#else
+CVAR (Int, r_vanillatrans, 3, CVAR_ARCHIVE) // vanilla-preferred
+#endif
 
 namespace
 {

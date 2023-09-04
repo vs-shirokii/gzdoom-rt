@@ -1255,6 +1255,9 @@ class Actor : Thinker native
 	native void A_SprayDecal(String name, double dist = 172, vector3 offset = (0, 0, 0), vector3 direction = (0, 0, 0), bool useBloodColor = false, color decalColor = 0);
 	native void A_SetMugshotState(String name);
 	native void CopyBloodColor(Actor other);
+// HAVE_RT begin
+	native clearscope void A_RtShowTitle( int titleid, double duration_seconds, double fadeout_seconds = 3.0);
+// HAVE_RT end
 
 	native void A_RearrangePointers(int newtarget, int newmaster = AAPTR_DEFAULT, int newtracer = AAPTR_DEFAULT, int flags=0);
 	native void A_TransferPointer(int ptr_source, int ptr_recipient, int sourcefield, int recipientfield=AAPTR_DEFAULT, int flags=0);

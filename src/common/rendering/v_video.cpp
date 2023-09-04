@@ -81,7 +81,11 @@ CUSTOM_CVAR(Int, gl_pipeline_depth, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG | CVAR_N
 	Printf("Changing the pipeline depth requires a restart for " GAMENAME ".\n");
 }
 
+#if !HAVE_RT
 CUSTOM_CVAR(Int, vid_maxfps, 200, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+#else
+CUSTOM_CVAR(Int, vid_maxfps, 0, CVAR_NOSET)
+#endif
 {
 	if (self < GameTicRate && self != 0)
 	{
@@ -99,6 +103,7 @@ CUSTOM_CVAR(Int, vid_preferbackend, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG | CVAR_N
 	// yet - I'm pretty sure it's going to require a lot of reinits and destructions to
 	// do it right without memory leaks
 
+#if !HAVE_RT
 	switch(self)
 	{
 #ifdef HAVE_GLES2
@@ -116,6 +121,9 @@ CUSTOM_CVAR(Int, vid_preferbackend, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG | CVAR_N
 	default:
 		Printf("Selecting OpenGL backend...\n");
 	}
+#else
+	Printf("Selecting RayTracing backend...\n");
+#endif
 
 	Printf("Changing the video backend requires a restart for " GAMENAME ".\n");
 }

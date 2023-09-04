@@ -44,12 +44,21 @@
 #include "gamestate.h"
 #include "i_interface.h"
 
+#if HAVE_RT
+#include "rt/rt_helpers.h"
+#endif
+
 int eventhead;
 int eventtail;
 event_t events[MAXEVENTS];
 
+#if !HAVE_RT
 CVAR(Float, m_sensitivity_x, 2.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Float, m_sensitivity_y, 2.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+#else
+CVAR(Float, m_sensitivity_x, 1.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CVAR(Float, m_sensitivity_y, 0.75f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+#endif
 CVAR(Bool, invertmouse, false, CVAR_GLOBALCONFIG | CVAR_ARCHIVE);  // Invert mouse look down/up?
 CVAR(Bool, invertmousex, false,	CVAR_GLOBALCONFIG | CVAR_ARCHIVE);  // Invert mouse look left/right?
 
@@ -74,6 +83,13 @@ void D_ProcessEvents (void)
 	{
 		event_t *ev = &events[eventtail];
 		eventtail = (eventtail + 1) & (MAXEVENTS - 1);
+
+#if HAVE_RT
+		if (RT_IgnoreUserInput())
+		{
+			continue;
+		}
+#endif
 
 		if (ev->type == EV_KeyUp && keywasdown[ev->data1])
 		{

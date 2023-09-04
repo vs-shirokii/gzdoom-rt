@@ -215,6 +215,13 @@ static void SetCursorState(bool visible)
 	}
 }
 
+#if HAVE_RT
+void RT_EnsureCursorState()
+{
+	SetCursorState(CursorState);
+}
+#endif
+
 //==========================================================================
 //
 // CenterMouse

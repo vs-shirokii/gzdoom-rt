@@ -1,6 +1,10 @@
 #pragma once
 
+#if !HAVE_RT
 #include "v_video.h"
+#else
+#include "i_video.h"
+#endif
 
 //==========================================================================
 //

@@ -45,6 +45,9 @@
 #include "hw_skydome.h"
 #include "hw_walldispatcher.h"
 
+#if HAVE_RT
+#include "rt/rt_state.h"
+#endif
 
 void SetGlowPlanes(FRenderState &state, const secplane_t& top, const secplane_t& bottom)
 {
@@ -341,6 +344,26 @@ void HWWall::RenderTranslucentWall(HWWallDispatcher*di, FRenderState &state)
 //==========================================================================
 void HWWall::DrawWall(HWWallDispatcher*di, FRenderState &state, bool translucent)
 {
+#if HAVE_RT
+	extern bool RT_IsWallNoMotionVectors( const seg_t* seg, side_t::ETexpart part );
+
+	assert(!lightlist);
+	auto rtexp = rtstate.push_type(RT_IsWallExportable(this->seg) ? RtPrim::ExportMap : RtPrim::Identity);
+	auto rttype = rtstate.push_type(
+		type == RENDERWALL_MIRRORSURFACE ? RtPrim::Mirror :
+		translucent ? RtPrim::Glass :
+		RtPrim::Identity);
+	// 'this->seg->sidedef' is not unique, hope that primitives for each of them are pushed in a certain order
+	auto rttemp = rtstate.push_uniqueid<RtManyPrimsPerId::Set0>(this->seg->sidedef);
+	auto rtwall =
+	    rtstate.push_type( RT_IsWallNoMotionVectors( this->seg,
+	                                                 type == RENDERWALL_TOP      ? side_t::top
+	                                                 : type == RENDERWALL_BOTTOM ? side_t::bottom
+	                                                                             : side_t::none )
+	                           ? RtPrim::NoMotionVectors
+	                           : RtPrim::Identity );
+#endif
+
 	if (screen->BuffersArePersistent())
 	{
 		if (di->di && di->Level->HasDynamicLights && !di->isFullbrightScene() && texture != nullptr)
@@ -1084,6 +1107,11 @@ bool HWWall::SetWallCoordinates(seg_t * seg, FTexCoordInfo *tci, float textureto
 		glseg.x1 = glseg.x1 + inter_x * (glseg.x2 - glseg.x1);
 		glseg.y1 = glseg.y1 + inter_x * (glseg.y2 - glseg.y1);
 		glseg.fracleft = inter_x;
+
+#if HAVE_RT
+		assert(isnan(glseg.x1) || isnan(glseg.x2) || isinf(glseg.x1) || isinf(glseg.x2));
+		assert(isnan(glseg.y1) || isnan(glseg.y2) || isinf(glseg.y1) || isinf(glseg.y2));
+#endif
 
 		zbottom[0] = ztop[0] = inter_y;
 

@@ -1671,6 +1671,10 @@ void MapLoader::FinishLoadingLineDefs ()
 //
 //===========================================================================
 
+#if HAVE_RT
+std::vector< std::pair< int, int > > rt_linesToSpecialAndTag{};
+#endif
+
 void MapLoader::LoadLineDefs (MapData * map)
 {
 	int i, skipped;
@@ -1681,6 +1685,11 @@ void MapLoader::LoadLineDefs (MapData * map)
 	int numlines = mldf.Size() / sizeof(maplinedef_t);
 	int numsides = map->Size(ML_SIDEDEFS) / sizeof(mapsidedef_t);
 	linemap.Resize(numlines);
+
+#if HAVE_RT
+	rt_linesToSpecialAndTag.clear();
+	rt_linesToSpecialAndTag.resize( numlines );
+#endif
 
 	// [RH] Count the number of sidedef references. This is the number of
 	// sidedefs we need. The actual number in the SIDEDEFS lump might be less.
@@ -1745,6 +1754,9 @@ void MapLoader::LoadLineDefs (MapData * map)
 			ProcessEDLinedef(ld, mld->tag);
 		}
 #endif
+		#if HAVE_RT
+		rt_linesToSpecialAndTag[ i ] = { ld->special, mld->tag };
+		#endif
 		// cph 2006/09/30 - fix sidedef errors right away.
 		for (int j=0; j < 2; j++)
 		{

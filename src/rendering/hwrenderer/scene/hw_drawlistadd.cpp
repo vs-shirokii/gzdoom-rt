@@ -29,6 +29,10 @@
 #include "actor.h"
 #include "g_levellocals.h"
 
+#if HAVE_RT
+#include "rt/rt_cvars.h"
+#endif
+
 EXTERN_CVAR(Bool, gl_seamless)
 
 //==========================================================================
@@ -57,6 +61,32 @@ void HWDrawInfo::AddWall(HWWall *wall)
 		{
 			list = masked ? GLDL_MASKEDWALLS : GLDL_PLAINWALLS;
 		}
+
+#if HAVE_RT // push only one side of double-sided walls that are alpha-tested
+		if (rt_only_one_side_wall)
+		{
+			// if alpha-tested
+			if (list == GLDL_MASKEDWALLS || list == GLDL_MASKEDWALLSOFS)
+			{
+				// if double sided
+				if (wall->seg->backsector)
+				{
+					side_t *frontside = wall->seg->linedef->sidedef[0];
+					side_t *backside = wall->seg->linedef->sidedef[1];
+
+					assert(wall->seg->sidedef == frontside
+						|| wall->seg->sidedef == backside);
+
+					// ignore if this HWWall is a back side
+					if (wall->seg->sidedef == backside)
+					{
+						return;
+					}
+				}
+			}
+		}
+#endif
+
 		auto newwall = drawlists[list].NewWall();
 		*newwall = *wall;
 	}

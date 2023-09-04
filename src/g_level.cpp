@@ -100,6 +100,10 @@
 
 #include "texturemanager.h"
 
+#if HAVE_RT
+#include "rt/rt_helpers.h"
+#endif
+
 void STAT_StartNewGame(const char *lev);
 void STAT_ChangeLevel(const char *newl, FLevelLocals *Level);
 FString STAT_EpisodeName();
@@ -151,7 +155,11 @@ CUSTOM_CVAR(Int, gl_maplightmode, -1, CVAR_NOINITCALL | CVAR_CHEAT) // this is j
 	if (self > 5 || self < -1) self = -1;
 }
 
+#if !HAVE_RT
 CUSTOM_CVARD(Int, gl_lightmode, 1, CVAR_ARCHIVE, "Select lighting mode. 2 is vanilla accurate, 1 is accurate to the ZDoom software renderer and 0 is a less demanding non-shader implementation")
+#else
+CUSTOM_CVARD(Int, gl_lightmode, 2, CVAR_ARCHIVE, "Select lighting mode. 2 is vanilla accurate, 1 is accurate to the ZDoom software renderer and 0 is a less demanding non-shader implementation")
+#endif
 {
 	if (self < 0 || self > 2) self = 1;
 }
@@ -553,6 +561,11 @@ static void InitPlayerClasses ()
 
 void G_InitNew (const char *mapname, bool bTitleLevel)
 {
+#if HAVE_RT
+	extern void RT_OnLevelLoad( const char* );
+	RT_OnLevelLoad( mapname );
+#endif
+
 	bool wantFast;
 	int i;
 
@@ -1539,8 +1552,23 @@ void FLevelLocals::DoLoadLevel(const FString &nextmapname, int position, bool au
 //
 //==========================================================================
 
+#if HAVE_RT
+bool g_wasRtMeltInitByWorldDone = false;
+#endif
+
 void FLevelLocals::WorldDone (void) 
 {
+#if HAVE_RT // HACKHACK
+	if (gamestate == GS_INTERMISSION || gamestate == GS_CUTSCENE)
+	{
+		// we need to request melt as early as possible,
+		// so we wouldn't see a glimpse of empty map
+		g_wasRtMeltInitByWorldDone = true;
+		RT_RequestMelt();
+	}
+#endif
+
+
 	gameaction = ga_worlddone; 
 
 

@@ -435,7 +435,12 @@ static void DoParseListMenuBody(FScanner &sc, DListMenuDescriptor *desc, bool &s
 		{
 			// all item classes from which we know that they support sized scaling.
 			// If anything else comes through here the option to swich scaling mode is disabled for this menu.
+#if !HAVE_RT
 			static const char*  const compatibles[] = { "StaticPatch", "StaticText", "StaticTextCentered", "TextItem", "PatchItem", "PlayerDisplay", nullptr };
+#else
+			static const char*  const compatibles[] = { "TextItem_RT",
+				"StaticPatch", "StaticText", "StaticTextCentered", "TextItem", "PatchItem", "PlayerDisplay", nullptr };
+#endif
 			if (sc.MatchString(compatibles) < 0) sizecompatible = false;
 
 			bool success = false;

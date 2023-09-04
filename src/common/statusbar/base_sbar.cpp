@@ -57,9 +57,15 @@ IMPLEMENT_CLASS(DStatusBarCore, false, false)
 IMPLEMENT_CLASS(DHUDFont, false, false);
 
 
+#if !HAVE_RT
 CVAR(Color, crosshaircolor, 0xff0000, CVAR_ARCHIVE);
 CVAR(Int, crosshairhealth, 2, CVAR_ARCHIVE);
 CVARD(Float, crosshairscale, 0.5, CVAR_ARCHIVE, "changes the size of the crosshair");
+#else
+CVAR(Color, crosshaircolor, 0xffffff, CVAR_ARCHIVE);
+CVAR(Int, crosshairhealth, 0, CVAR_ARCHIVE);
+CVARD(Float, crosshairscale, 0.f, CVAR_ARCHIVE, "changes the size of the crosshair");
+#endif
 CVAR(Bool, crosshairgrow, false, CVAR_ARCHIVE);
 
 CUSTOM_CVARD(Float, hud_scalefactor, 1.f, CVAR_ARCHIVE, "changes the hud scale")

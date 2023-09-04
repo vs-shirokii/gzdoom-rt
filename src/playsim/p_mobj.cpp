@@ -137,6 +137,9 @@ static FRandom pr_missiledamage ("MissileDamage");
 static FRandom pr_multiclasschoice ("MultiClassChoice");
 static FRandom pr_rockettrail("RocketTrail");
 static FRandom pr_uniquetid("UniqueTID");
+#if HAVE_RT
+static FRandom rt_pr_blood("RtBlood");
+#endif
 
 // PUBLIC DATA DEFINITIONS -------------------------------------------------
 
@@ -156,6 +159,20 @@ CVAR (Bool, cl_missiledecals, true, CVAR_ARCHIVE)
 CVAR (Bool, addrocketexplosion, false, CVAR_ARCHIVE)
 CVAR (Int, cl_pufftype, 0, CVAR_ARCHIVE);
 CVAR (Int, cl_bloodtype, 0, CVAR_ARCHIVE);
+#if HAVE_RT
+namespace cvar
+{
+EXTERN_CVAR( Bool, rt_fluid );
+}
+CVARD( Float, rt_blood_speed,    80.f, CVAR_ARCHIVE, "horizontal max blood fluid speed on spawn (in Doom units per second; 32 units = 1 meter)" );
+CVARD( Float, rt_blood_speed_v,  70.f, CVAR_ARCHIVE, "vertical max blood fluid speed on spawn (in Doom units per second; 32 units = 1 meter)" );
+CVARD( Float, rt_blood_angle,   170.f, CVAR_ARCHIVE, "blood fluid spawn dispersion, in degrees" );
+CVARD( Int,   rt_blood_dens,    192,   CVAR_ARCHIVE, "blood fluid spawn density" );
+CVARD( Bool,  rt_blood_dbg,     false, CVAR_ARCHIVE, "if true, blood fluid will be spawned on any hitscan hit (puff)" );
+CVARD( Bool,  rt_blood_groovy,  false, CVAR_ARCHIVE, "more blood. (overrides rt_blood_dens, rt_blood_speed, rt_blood_speed_v)" );
+CVARD( Float, rt_blood_offs,    -16.f, CVAR_ARCHIVE, "horizontal offset to prevent spawn inside the walls / things. if <0, rand is in [-1,1] otherswise [0,1]" );
+CVARD( Float, rt_blood_offs_v,    8.f, CVAR_ARCHIVE, "vertical offset to prevent spawn inside the walls / things" );
+#endif
 
 // CODE --------------------------------------------------------------------
 
@@ -5900,6 +5917,66 @@ AActor *FLevelLocals::SpawnMapThing(int index, FMapThing *mt, int position)
 // GAME SPAWN FUNCTIONS
 //
 
+#if HAVE_RT
+
+extern void RT_SpawnFluid( int             count,
+                           const FVector3& position,
+                           const FVector3& velocity,
+                           float           dispersionDegrees );
+
+void RT_SpawnBlood( float mult, const FVector3 &pos, FVector3 dir )
+{
+	assert( std::abs( dir.LengthSquared() - 1.0 ) < 0.001 );
+
+	float speed   = rt_blood_groovy ? 500.f : rt_blood_speed;
+	float speed_v = rt_blood_groovy ? 150.f : rt_blood_speed_v;
+	int   count   = rt_blood_groovy ? 2048 : rt_blood_dens;
+
+	count = int( count * std::clamp< float >( mult, 0.0f, 10.0f ) );
+
+	dir.XY() *= speed;
+	dir.Z *= speed_v;
+
+	RT_SpawnFluid( count, pos, dir, rt_blood_angle );
+}
+
+void RT_SpawnBlood_Thing( float mult, const DVector3& pos, const DRotator& rotation, bool down = false )
+{
+	if( !cvar::rt_fluid )
+	{
+		return;
+	}
+
+	assert( std::abs( rotation.Pitch.Degrees() ) < 0.01 );
+	assert( std::abs( rotation.Roll.Degrees() ) < 0.01 );
+
+	// approximate, as trace doesn't give a normal...
+	const auto normal =
+	    FVector3{
+		    FVector2{ DVector3{ rotation }.XY() },
+		    down ? -1.0f : 1.0f,
+	    }
+	        .Unit();
+
+	// [0,1]
+	float rand11 = float( rt_pr_blood.GenRand_Real1() );
+
+	if( rt_blood_offs < 0 )
+	{
+		// [-1,1]
+		rand11 = 2.0f * rand11 - 1.0f;
+	}
+
+	// to avoid fluid being stuck in a wall / thing
+	const auto offset = FVector3{
+		normal.XY() * std::abs( float( rt_blood_offs ) ) * rand11,
+		float( rt_blood_offs_v ),
+	};
+
+	RT_SpawnBlood( mult, FVector3{ pos } + offset, normal );
+}
+
+#endif // HAVE_RT
 
 //
 // P_SpawnPuff
@@ -5936,6 +6013,13 @@ AActor *P_SpawnPuff (AActor *source, PClassActor *pufftype, const DVector3 &pos1
 	
 	// Angle is the opposite of the hit direction (i.e. the puff faces the source.)
 	puff->Angles.Yaw = hitdir + DAngle::fromDeg(180);
+
+#if HAVE_RT
+	if( rt_blood_dbg )
+	{
+		RT_SpawnBlood_Thing( 1, pos, puff->Angles, updown );
+	}
+#endif
 
 	// If a puff has a crash state and an actor was not hit,
 	// it will enter the crash state. This is used by the StrifeSpark
@@ -6033,6 +6117,30 @@ void P_SpawnBlood (const DVector3 &pos1, DAngle dir, int damage, AActor *origina
 		{
 			th->Translation = originator->BloodTranslation;
 		}
+
+#if HAVE_RT
+		{
+			bool islocalplayer = false;
+			{
+				if( originator && originator->Level && originator->player )
+				{
+					if( originator->Level->PlayerNum( originator->player ) == consoleplayer )
+					{
+						islocalplayer = true;
+					}
+				}
+			}
+			if( !islocalplayer )
+			{
+				float dmgMult = std::clamp( float( damage ) / 15.f, 1.0f, 4.0f );
+
+				auto norm = DRotator{};
+				norm.Yaw  = dir + DAngle::fromDeg( 180 ); // idk why opposite
+
+				RT_SpawnBlood_Thing( dmgMult, pos, norm );
+			}
+		}
+#endif
 		
 		// Moved out of the blood actor so that replacing blood is easier
 		if (gameinfo.gametype & GAME_DoomStrifeChex)

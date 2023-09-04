@@ -1856,7 +1856,11 @@ void TryRunTics (void)
 	int 		counts;
 	int 		numplaying;
 
+#if !HAVE_RT
 	bool doWait = (cl_capfps || pauseext || (r_NoInterpolate && !M_IsAnimated()));
+#else
+	const bool doWait = cl_capfps;
+#endif
 
 	// get real tics
 	if (doWait)

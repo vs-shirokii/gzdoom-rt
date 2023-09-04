@@ -4,7 +4,7 @@ w +forward
 s +back
 a +moveleft
 d +moveright
-space +jump
-x crouch
 e +use
+space +use
 mouse2 +altattack
+c rt_classic_toggle

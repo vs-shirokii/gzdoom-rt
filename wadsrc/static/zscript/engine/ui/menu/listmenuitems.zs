@@ -35,17 +35,57 @@
 
 class ListMenuItem : MenuItemBase
 {
-	protected void DrawText(ListMenuDescriptor desc, Font fnt, int color, double x, double y, String text, bool ontop = false)
+// RT begin
+	virtual bool RT_Activate_LeftOrRight(bool toleft, bool justapply = false)
 	{
+		return false;
+	}
+
+	double RT_RemapClamped( double value, double oldMin, double oldMax, double newMin, double newMax )
+	{
+		double clamped = clamp(value, oldMin, oldMax);
+    	double t = (clamped - oldMin) / (oldMax - oldMin);
+
+    	double remapped = newMin + t * (newMax - newMin);
+		return clamp(remapped, newMin, newMax);
+	}
+
+	// because RT menus are aligned by left side, and x coord can be < 0 to look fine at 16:9
+	// and changing existing code base is a significant amount of work :/
+	double RT_HardcodedOffsetForLowerThan16by9()
+	{
+		double maxoffset = 64;
+
+		return maxoffset - RT_RemapClamped(
+			Screen.GetAspectRatio(),
+			4.0 / 3.0, 16.0 / 9.0,
+			0, maxoffset );
+	}
+// RT end
+
+	protected void DrawText(ListMenuDescriptor desc, Font fnt, int color, double x, double y, String text, bool ontop = false, bool grayed = false)
+	{
+// RT begin
+		int overlay = grayed ? Color(96,48,0,0) : 0;
+// RT end
 		int w = desc ? desc.DisplayWidth() : ListMenuDescriptor.CleanScale;
 		int h = desc ? desc.DisplayHeight() : -1;
 		if (w == ListMenuDescriptor.CleanScale)
 		{
-			screen.DrawText(fnt, color, x, y, text, ontop? DTA_CleanTop : DTA_Clean, true);
+			screen.DrawText(fnt, color, x, y, text, ontop? DTA_CleanTop : DTA_Clean, true
+// RT begin
+			, DTA_ColorOverlay, overlay);
+// RT end
 		}
 		else
 		{
-			screen.DrawText(fnt, color, x, y, text, DTA_VirtualWidth, w, DTA_VirtualHeight, h, DTA_FullscreenScale, FSMode_ScaleToFit43);
+// RT begin
+			x += RT_HardcodedOffsetForLowerThan16by9();
+// RT end
+			screen.DrawText(fnt, color, x, y, text, DTA_VirtualWidth, w, DTA_VirtualHeight, h, DTA_FullscreenScale, FSMode_ScaleToFit43
+// RT begin
+			, DTA_ColorOverlay, overlay);
+// RT end
 		}
 	}
 
@@ -59,6 +99,9 @@ class ListMenuItem : MenuItemBase
 		}
 		else
 		{
+// RT begin
+			x += RT_HardcodedOffsetForLowerThan16by9();
+// RT end
 			screen.DrawTexture(tex, true, x, y, DTA_VirtualWidth, w, DTA_VirtualHeight, h, DTA_FullscreenScale, FSMode_ScaleToFit43);
 		}
 	}

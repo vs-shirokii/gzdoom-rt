@@ -42,7 +42,9 @@ class Chainsaw : Weapon
 
 extend class StateProvider
 {
-	action void A_Saw(sound fullsound = "weapons/sawfull", sound hitsound = "weapons/sawhit", int damage = 2, class<Actor> pufftype = "BulletPuff", int flags = 0, double range = 0, double spread_xy = 2.8125, double spread_z = 0, double lifesteal = 0, int lifestealmax = 0, class<BasicArmorBonus> armorbonustype = "ArmorBonus")
+// HAVE_RT begin: changed 'BulletPuff' to 'GibBulletPuff'
+	action void A_Saw(sound fullsound = "weapons/sawfull", sound hitsound = "weapons/sawhit", int damage = 2, class<Actor> pufftype = "GibBulletPuff", int flags = 0, double range = 0, double spread_xy = 2.8125, double spread_z = 0, double lifesteal = 0, int lifestealmax = 0, class<BasicArmorBonus> armorbonustype = "ArmorBonus")
+// HAVE_RT end
 	{
 		FTranslatedLineTarget t;
 
@@ -53,7 +55,9 @@ extend class StateProvider
 
 		if (pufftype == null)
 		{
-			pufftype = 'BulletPuff';
+// HAVE_RT begin: changed 'BulletPuff' to 'GibBulletPuff'
+			pufftype = 'GibBulletPuff';
+// HAVE_RT end
 		}
 		if (damage == 0)
 		{

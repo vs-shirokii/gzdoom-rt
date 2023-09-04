@@ -202,11 +202,20 @@ int				lookspeed[2] = {450, 512};
 
 #define SLOWTURNTICS	6 
 
+#if !HAVE_RT
 CVAR (Bool,		cl_run,			false,	CVAR_GLOBALCONFIG|CVAR_ARCHIVE)		// Always run?
 CVAR (Bool,		freelook,		true,	CVAR_GLOBALCONFIG|CVAR_ARCHIVE)		// Always mlook?
 CVAR (Bool,		lookstrafe,		false,	CVAR_GLOBALCONFIG|CVAR_ARCHIVE)		// Always strafe with mouse?
 CVAR (Float,	m_forward,		1.f,	CVAR_GLOBALCONFIG|CVAR_ARCHIVE)
 CVAR (Float,	m_side,			2.f,	CVAR_GLOBALCONFIG|CVAR_ARCHIVE)
+#else
+CVAR (Bool,		cl_run,			true,	CVAR_GLOBALCONFIG|CVAR_ARCHIVE)		// Always run?
+CVAR (Bool,		freelook,		true,	CVAR_GLOBALCONFIG|CVAR_ARCHIVE)		// Always mlook?
+CVAR (Bool,		lookstrafe,		false,	CVAR_GLOBALCONFIG|CVAR_ARCHIVE)		// Always strafe with mouse?
+CVAR (Float,	m_forward,		0.f,	CVAR_GLOBALCONFIG|CVAR_ARCHIVE)
+CVAR (Float,	m_side,			0.f,	CVAR_GLOBALCONFIG|CVAR_ARCHIVE)
+CVAR (Bool,		freelook0_pitch0, true, CVAR_GLOBALCONFIG|CVAR_ARCHIVE) // force 0 pitch when freelook is false
+#endif
  
 int 			turnheld;								// for accelerative turning 
 
@@ -2317,6 +2326,7 @@ static void PutSaveComment (FSerializer &arc)
 
 static void PutSavePic (FileWriter *file, int width, int height)
 {
+#if !HAVE_RT // don't D_Render move than once, breaks unique ids
 	if (width <= 0 || height <= 0 || !storesavepic)
 	{
 		M_CreateDummyPNG (file);
@@ -2328,6 +2338,9 @@ static void PutSavePic (FileWriter *file, int width, int height)
 				WriteSavePic(&players[consoleplayer], file, width, height);
 			}, false);
 	}
+#else
+	M_CreateDummyPNG (file);
+#endif
 }
 
 void G_DoSaveGame (bool okForQuicksave, bool forceQuicksave, FString filename, const char *description)

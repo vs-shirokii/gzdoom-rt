@@ -405,6 +405,12 @@ LRESULT CALLBACK WndProc (HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
 	case WM_KILLFOCUS:
 		I_CheckNativeMouse (true, false);	// Make sure mouse gets released right away
+#if HAVE_RT // when losing focus in fullscreen, minimize it to the taskbar
+		if (screen && screen->IsFullscreen())
+		{
+			ShowWindow(hWnd, SW_MINIMIZE);
+		}
+#endif
 		break;
 
 	case WM_SETFOCUS:
@@ -478,6 +484,16 @@ LRESULT CALLBACK WndProc (HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		break;
 
 	case WM_ACTIVATEAPP:
+#if HAVE_RT
+		// HACKHACK: dont loose focus on main window, otherwise the renderer will stall
+		// because 'AppActive' is false, so all frames are suppressed
+		extern bool g_rt_forcenofocuschange;
+		if( g_rt_forcenofocuschange )
+		{
+			break;
+		}
+#endif
+
 		AppActive = wParam == TRUE;
 		if (wParam)
 		{
@@ -502,6 +518,15 @@ LRESULT CALLBACK WndProc (HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			D_PostEvent(&ev);
 		}
 		return DefWindowProc (hWnd, message, wParam, lParam);
+
+#if HAVE_RT
+	case WM_CLOSE: {
+		// idk why exit doesn't happen in Release mode...
+		extern bool g_rt_forcequit;
+		g_rt_forcequit = true;
+		return DefWindowProc( hWnd, message, wParam, lParam );
+	}
+#endif
 
 	default:
 		return DefWindowProc (hWnd, message, wParam, lParam);

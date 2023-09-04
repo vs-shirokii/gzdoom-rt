@@ -29,7 +29,11 @@ CVAR(Bool, vid_fps, false, 0)
 
 EXTERN_CVAR(Bool, ui_generic)
 
+#if !HAVE_RT
 CUSTOM_CVAR(String, language, "auto", CVAR_ARCHIVE | CVAR_NOINITCALL | CVAR_GLOBALCONFIG)
+#else
+CUSTOM_CVAR(String, language, "default", CVAR_ARCHIVE | CVAR_NOINITCALL | CVAR_GLOBALCONFIG)
+#endif
 {
 	GStrings.UpdateLanguage(self);
 	UpdateGenericUI(ui_generic);

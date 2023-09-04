@@ -81,6 +81,8 @@
 #include "p_lnspec.h"
 #include "d_main.h"
 
+#include "rt/rt_state.h"
+
 extern AActor *SpawnMapThing (int index, FMapThing *mthing, int position);
 
 extern unsigned int R_OldBlend;
@@ -149,6 +151,79 @@ static void AddToList(uint8_t *hitlist, FTextureID texid, int bitmask)
 		}
 	}
 }
+
+#if HAVE_RT
+auto RT_MarkAllAnimatedTextures() -> std::vector<bool>
+{
+	if (TexMan.NumTextures() <= 0)
+	{
+		return {};
+	}
+
+	auto animatedTexnums = std::vector<bool>{};
+	animatedTexnums.resize(TexMan.NumTextures(), false);
+
+	for (int texnum = 0; texnum < TexMan.NumTextures(); texnum++)
+	{
+		auto texid = FTextureID{};
+		texid.SetIndex(texnum);
+
+		auto addAnimations = [&](const FTextureID atexid)
+			{
+				for (const FAnimDef &anim : TexAnim.GetAnimations())
+				{
+					if (anim.NumFrames < 2)
+					{
+						continue;
+					}
+
+					if (atexid == anim.BasePic || (!anim.bDiscrete && anim.BasePic < atexid && atexid < anim.BasePic + anim.NumFrames))
+					{
+						for (int i = anim.BasePic.GetIndex(); i < anim.BasePic.GetIndex() + anim.NumFrames; i++)
+						{
+							animatedTexnums[i] = true;
+						}
+					}
+				}
+			};
+
+		addAnimations(texid);
+
+		if (FSwitchDef *switchdef = TexAnim.FindSwitch(texid))
+		{
+			const FSwitchDef *const pair = switchdef->PairDef;
+			const uint16_t numFrames = switchdef->NumFrames;
+			const uint16_t pairNumFrames = pair->NumFrames;
+
+			for (int i = 0; i < numFrames; i++)
+			{
+				animatedTexnums[switchdef->frames[i].Texture.GetIndex()] = true;
+			}
+			for (int i = 0; i < pairNumFrames; i++)
+			{
+				animatedTexnums[pair->frames[i].Texture.GetIndex()] = true;
+			}
+
+			if (numFrames == 1 && pairNumFrames == 1)
+			{
+				// Switch can still be animated via BOOM binary definition from ANIMATED lump
+				addAnimations(switchdef->frames[0].Texture);
+				addAnimations(pair->frames[0].Texture);
+			}
+		}
+
+		if (FDoorAnimation *adoor = TexAnim.FindAnimatedDoor(texid))
+		{
+			for (int i = 0; i < adoor->NumTextureFrames; i++)
+			{
+				animatedTexnums[adoor->TextureFrames[i].GetIndex()] = true;
+			}
+		}
+	}
+
+	return animatedTexnums;
+}
+#endif
 
 static void PrecacheLevel(FLevelLocals *Level)
 {
@@ -232,6 +307,9 @@ static void PrecacheLevel(FLevelLocals *Level)
 	else
 		hw_PrecacheTexture(hitlist.Data(), actorhitlist);
 
+#if HAVE_RT
+	RT_BakeExportables(RT_MarkAllAnimatedTextures());
+#endif
 }
 
 //============================================================================

@@ -122,6 +122,13 @@
 #include "i_system.h"  // for SHARE_DIR
 #endif // __unix__
 
+#if HAVE_RT
+#include "rt/rt_state.h"
+#include "rt/rt_cvars.h"
+void        RT_FirstStartDone();
+extern bool g_noinput_onstart;
+#endif
+
 using namespace FileSys;
 
 EXTERN_CVAR(Bool, hud_althud)
@@ -270,7 +277,11 @@ CUSTOM_CVAR (Int, fraglimit, 0, CVAR_SERVERINFO)
 CVAR (Float, timelimit, 0.f, CVAR_SERVERINFO);
 CVAR (Int, wipetype, 1, CVAR_ARCHIVE);
 CVAR (Int, snd_drawoutput, 0, 0);
+#if !HAVE_RT
 CUSTOM_CVAR (String, vid_cursor, "None", CVAR_ARCHIVE | CVAR_NOINITCALL)
+#else
+CUSTOM_CVAR (String, vid_cursor, "-", CVAR_ARCHIVE | CVAR_NOINITCALL)
+#endif
 {
 	bool res = false;
 	
@@ -877,7 +888,11 @@ static void End2DAndUpdate()
 void D_Display ()
 {
 	FTexture *wipestart = nullptr;
+#if !HAVE_RT
 	int wipe_type;
+#else
+	int wipe_type = wipe_None;
+#endif
 	sector_t *viewsec;
 
 	if (nodrawers || screen == NULL)
@@ -1064,11 +1079,20 @@ void D_Display ()
 				break;
 		}
 	}
+
+#if HAVE_RT
+	static bool meltactive_prev = false;
+	const bool meltactive = RT_IsMeltActive();
+#endif
+
 	if (!hud_toggled)
 	{
 		CT_Drawer ();
 
 		// draw pause pic
+#if HAVE_RT
+		if (!meltactive && !meltactive_prev) // we use pause to hack a screen melt...
+#endif
 		if ((paused || pauseext) && menuactive == MENU_Off && StatusBar != nullptr)
 		{
 			// [MK] optionally let the status bar handle this
@@ -1120,6 +1144,7 @@ void D_Display ()
 		}
 	}
 
+#if !HAVE_RT
 	if (!wipestart || NoWipe < 0 || wipe_type == wipe_None || hud_toggled)
 	{
 		if (wipestart != nullptr) wipestart->DecRef();
@@ -1132,6 +1157,61 @@ void D_Display ()
 		NetUpdate();		// send out any new accumulation
 		PerformWipe(wipestart, screen->WipeEndScreen(), wipe_type, false, DrawOverlays);
 	}
+#else
+    if (NoWipe >= 0 && wipe_type != wipe_None && !hud_toggled)
+    {
+		extern bool g_wasRtMeltInitByWorldDone;
+		if (!g_wasRtMeltInitByWorldDone)
+		{
+			// suppress initial melt
+			bool is_initial = false;
+			{
+				static bool wasinit = false;
+				if (gametic > 0)
+				{
+					if (!wasinit)
+					{
+						// suppress from the demo screen (that is not shown with RT)
+						if (gamestate == GS_DEMOSCREEN)
+						{
+							is_initial = true;
+							wasinit = true;
+						}
+					}
+				}
+				else
+				{
+					is_initial = true;
+				}
+			}
+
+			if (!is_initial)
+			{
+				RT_RequestMelt();
+			}
+		}
+		g_wasRtMeltInitByWorldDone = false;
+	}
+
+    {
+        DrawOverlays();
+        End2DAndUpdate();
+    }
+
+    {
+        if (!meltactive_prev && meltactive)
+        {
+            GSnd->SetSfxPaused(true, 1);
+            paused = 1;
+        }
+        else if (meltactive_prev && !meltactive)
+        {
+            GSnd->SetSfxPaused(false, 1);
+            paused = 0;
+        }
+        meltactive_prev = meltactive;
+    }
+#endif
 	cycles.Unclock();
 	FrameCycles = cycles;
 }
@@ -1164,6 +1244,10 @@ void D_ErrorCleanup ()
 	insave = false;
 	ClearGlobalVMStack();
 }
+
+#if HAVE_RT
+bool g_rt_forcequit = false;
+#endif
 
 //==========================================================================
 //
@@ -1230,6 +1314,13 @@ void D_DoomLoop ()
 				wantToRestart = false;
 				return;
 			}
+#if HAVE_RT
+			if( g_rt_forcequit )
+			{
+				g_rt_forcequit = false;
+				throw CExitEvent{ 0 };
+			}
+#endif
 		}
 		catch (const CRecoverableError &error)
 		{
@@ -1521,16 +1612,29 @@ void D_DoAdvanceDemo (void)
 		demosequence = 3;
 		pagecount = 0;
 		C_HideConsole ();
+#if HAVE_RT // enable menu immediately
+		{
+			static bool rt_firsttime = true;
+			if (rt_firsttime)
+			{
+				rt_firsttime = false;
+				M_StartControlPanel(false);
+				M_SetMenu(NAME_Mainmenu, -1);
+			}
+		}
+#endif
 		break;
 
 	case 2:
 		pagetic = (int)(gameinfo.pageTime * TICRATE);
 		gamestate = GS_DEMOSCREEN;
+#if !HAVE_RT
 		if (gameinfo.creditPages.Size() > 0)
 		{
 			pagename = gameinfo.creditPages[pagecount].GetChars();
 			pagecount = (pagecount+1) % gameinfo.creditPages.Size();
 		}
+#endif
 		demosequence = 1;
 		break;
 	}
@@ -1788,6 +1892,14 @@ static void GetCmdLineFiles(std::vector<std::string>& wadfiles)
 	{
 		D_AddWildFile(wadfiles, args[i].GetChars(), ".wad", GameConfig);
 	}
+
+#if HAVE_RT
+	if (!DirEntryExists("rt/wad"))
+	{
+		I_FatalError("Can't find rt/wad directory");
+	}
+	D_AddWildFile(wadfiles, "rt/wad", nullptr /* ignored */, GameConfig);
+#endif
 }
 
 
@@ -2672,6 +2784,14 @@ static bool System_DispatchEvent(event_t* ev)
 {
 	shiftState.AddEvent(ev);
 
+#if HAVE_RT
+	if (ev->type == EV_Mouse)
+	{
+		extern void RT_FirstStartSetMouse(float x, float y);
+		RT_FirstStartSetMouse(ev->x, ev->y);
+	}
+#endif
+
 	if (ev->type == EV_Mouse && menuactive == MENU_Off && ConsoleState != c_down && ConsoleState != c_falling && !primaryLevel->localEventManager->Responder(ev) && !paused)
 	{
 		if (buttonMap.ButtonDown(Button_Mlook) || freelook)
@@ -2704,16 +2824,27 @@ bool System_WantNativeMouse()
 	return primaryLevel->localEventManager->CheckRequireMouse();
 }
 
+#if HAVE_RT
+extern bool RT_ForceCaptureMouse();
+#endif
+
 static bool System_CaptureModeInGame()
 {
 	if (demoplayback || paused) return false;
 	switch (mouse_capturemode)
 	{
 	default:
+#if !HAVE_RT
 	case 0:
 		return gamestate == GS_LEVEL;
 	case 1:
 		return gamestate == GS_LEVEL || gamestate == GS_CUTSCENE;
+#else
+	case 0:
+		return gamestate == GS_LEVEL || RT_ForceCaptureMouse();
+	case 1:
+		return gamestate == GS_LEVEL || gamestate == GS_CUTSCENE || RT_ForceCaptureMouse();
+#endif
 	case 2:
 		return true;
 	}
@@ -3095,6 +3226,17 @@ static int FileSystemPrintf(FSMessageLevel level, const char* fmt, ...)
 
 static int D_InitGame(const FIWADInfo* iwad_info, std::vector<std::string>& allwads, std::vector<std::string>& pwads)
 {
+#if HAVE_RT
+	bool unlockInputs = true;
+	defer {
+		if( unlockInputs )
+		{
+			RT_FirstStartDone();
+			g_noinput_onstart = false;
+		}
+	};
+#endif
+
 	SavegameFolder = iwad_info->Autoname;
 	gameinfo.gametype = iwad_info->gametype;
 	gameinfo.flags = iwad_info->flags;
@@ -3576,6 +3718,14 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<std::string>& allw
 						else
 						{
 							I_SetFrameTime();
+#if HAVE_RT
+							gameinfo.IntroScene = CutsceneDef{
+								.function = "Cutscenes_RT.MakeFirstStart",
+								.soundName = {},
+							};
+
+							unlockInputs = false;
+#endif
 							if (!StartCutscene(gameinfo.IntroScene, SJ_BLOCKUI, [=](bool) {
 								gameaction = ga_titleloop;
 								})) D_StartTitle();
@@ -3606,8 +3756,40 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<std::string>& allw
 //
 //==========================================================================
 
+static FString RT_GetFirstStartMarker()
+{
+	return M_GetConfigPath( false ) + ".firststart";
+}
+
+void RT_FirstStartDone()
+{
+	if( !cvar::rt_firststart )
+	{
+		return;
+	}
+	if( FileExists( RT_GetFirstStartMarker() ) )
+	{
+		return;
+	}
+
+	auto lockpath = RT_GetFirstStartMarker();
+	auto dir      = ExtractFilePath( lockpath.GetChars() );
+
+	CreatePath( dir.GetChars() );
+	FileWriter* file = FileWriter::Open( lockpath.GetChars() );
+	file->Printf( "this file exists as a marker of the first start" );
+	delete file;
+}
+
 static int D_DoomMain_Internal (void)
 {
+#if HAVE_RT
+	if( !FileExists( RT_GetFirstStartMarker() ) )
+	{
+		cvar::rt_firststart = true;
+	}
+#endif
+
 	const char *wad;
 	FIWadManager *iwad_man;
 
@@ -3801,6 +3983,12 @@ int GameMain()
 		I_ShowFatalError(error.what());
 		ret = -1;
 	}
+#if HAVE_RT // hide window as soon as possible
+#ifdef _WIN32
+	extern void ForceHideMainWindow();
+	ForceHideMainWindow();
+#endif
+#endif
 	// Unless something really bad happened, the game should only exit through this single point in the code.
 	// No more 'exit', please.
 	D_Cleanup();

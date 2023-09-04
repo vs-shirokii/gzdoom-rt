@@ -2211,3 +2211,47 @@ DEFINE_ACTION_FUNCTION_NATIVE(FLevelLocals, SpawnParticle, SpawnParticle)
 	SpawnParticle(self, p);
 	return 0;
 }
+
+#if HAVE_RT
+
+extern void RT_StartTitleImage( const char* imagepath,
+                                int         begin_maptime,
+                                int         end_maptime,
+                                int         fadeout_tics );
+
+void A_RtShowTitle( AActor* self, int titleid, double duration_seconds, double fadeout_seconds )
+{
+	const char* img;
+	switch( titleid )
+	{
+		case 0: img = "title/iconofsin"; break;
+		default: img = nullptr; break;
+	}
+	if( !img || img[ 0 ] == '\0' )
+	{
+		return;
+	}
+
+	int duration_tics = int( duration_seconds * TICRATE );
+	if( duration_tics <= 0 )
+	{
+		return;
+	}
+	int endtime = level.maptime + duration_tics;
+
+	int fadeout_tics = std::max( 0, int( fadeout_seconds * TICRATE ) );
+
+	RT_StartTitleImage( img, -1, endtime, fadeout_tics );
+}
+
+DEFINE_ACTION_FUNCTION_NATIVE( AActor, A_RtShowTitle, A_RtShowTitle )
+{
+	PARAM_SELF_PROLOGUE( AActor );
+	PARAM_INT( titleid );
+	PARAM_FLOAT( duration_seconds );
+	PARAM_FLOAT( fadeout_seconds );
+	A_RtShowTitle( self, titleid, duration_seconds, fadeout_seconds );
+	return 0;
+}
+
+#endif

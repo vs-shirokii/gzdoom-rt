@@ -321,7 +321,9 @@ decalgroup BFGScorch
 decal BFGLightning1
 {
 	pic BFGLITE1
-	shade "80 ff 80"
+// RT begin
+	shade "20 ff 20"
+// RT end
 	fullbright
 	randomflipx
 	animator GoAway2
@@ -331,7 +333,9 @@ decal BFGLightning1
 decal BFGLightning2
 {
 	pic BFGLITE2
-	shade "80 ff 80"
+// RT begin
+	shade "20 ff 20"
+// RT end
 	fullbright
 	randomflipy
 	animator GoAway2

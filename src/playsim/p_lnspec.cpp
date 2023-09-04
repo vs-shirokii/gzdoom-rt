@@ -583,68 +583,107 @@ FUNC(LS_Floor_Stop)
 	return Level->EV_StopFloor(arg0, ln);
 }
 
+#if HAVE_RT
+bool stairs_isstairs( int special )
+{
+	switch( special )
+	{
+		case Stairs_BuildDown:
+		case Stairs_BuildUp:
+		case Stairs_BuildDownSync:
+		case Stairs_BuildUpSync:
+		case Stairs_BuildUpDoom:
+		case Stairs_BuildUpDoomCrush:
+		case Stairs_BuildDownDoom:
+		case Stairs_BuildDownDoomSync:
+		case Stairs_BuildUpDoomSync:
+		case Generic_Stairs: return true;
+		default: return false;
+	}
+}
+
+int stairs_usespecials( int special )
+{
+	assert( stairs_isstairs( special ) );
+	switch( special )
+	{
+		case Stairs_BuildDown:
+		case Stairs_BuildUp: return DFloor::stairUseSpecials;
+		case Stairs_BuildDownSync:
+		case Stairs_BuildUpSync: return DFloor::stairUseSpecials | DFloor::stairSync;
+		case Stairs_BuildUpDoom: return 0;
+		case Stairs_BuildUpDoomCrush: return DFloor::stairCrush;
+		case Stairs_BuildDownDoom: return 0;
+		case Stairs_BuildDownDoomSync:
+		case Stairs_BuildUpDoomSync: return DFloor::stairSync;
+		case Generic_Stairs: return 0;
+		default: assert( 0 ); return 0;
+	}
+}
+#endif
+
 
 FUNC(LS_Stairs_BuildDown)
 // Stair_BuildDown (tag, speed, height, delay, reset)
 {
 	return Level->EV_BuildStairs (arg0, DFloor::buildDown, ln,
-						   arg2, SPEED(arg1), TICS(arg3), arg4, 0, DFloor::stairUseSpecials);
+						   arg2, SPEED(arg1), TICS(arg3), arg4, 0, stairs_usespecials(Stairs_BuildDown));
 }
 
 FUNC(LS_Stairs_BuildUp)
 // Stairs_BuildUp (tag, speed, height, delay, reset)
 {
 	return Level->EV_BuildStairs (arg0, DFloor::buildUp, ln,
-						   arg2, SPEED(arg1), TICS(arg3), arg4, 0, DFloor::stairUseSpecials);
+						   arg2, SPEED(arg1), TICS(arg3), arg4, 0, stairs_usespecials(Stairs_BuildUp));
 }
 
 FUNC(LS_Stairs_BuildDownSync)
 // Stairs_BuildDownSync (tag, speed, height, reset)
 {
 	return Level->EV_BuildStairs (arg0, DFloor::buildDown, ln,
-						   arg2, SPEED(arg1), 0, arg3, 0, DFloor::stairUseSpecials|DFloor::stairSync);
+						   arg2, SPEED(arg1), 0, arg3, 0, stairs_usespecials(Stairs_BuildDownSync));
 }
 
 FUNC(LS_Stairs_BuildUpSync)
 // Stairs_BuildUpSync (tag, speed, height, reset)
 {
 	return Level->EV_BuildStairs (arg0, DFloor::buildUp, ln,
-						   arg2, SPEED(arg1), 0, arg3, 0, DFloor::stairUseSpecials|DFloor::stairSync);
+						   arg2, SPEED(arg1), 0, arg3, 0, stairs_usespecials(Stairs_BuildUpSync));
 }
 
 FUNC(LS_Stairs_BuildUpDoom)
 // Stairs_BuildUpDoom (tag, speed, height, delay, reset)
 {
 	return Level->EV_BuildStairs (arg0, DFloor::buildUp, ln,
-						   arg2, SPEED(arg1), TICS(arg3), arg4, 0, 0);
+						   arg2, SPEED(arg1), TICS(arg3), arg4, 0, stairs_usespecials(Stairs_BuildUpDoom));
 }
 
 FUNC(LS_Stairs_BuildUpDoomCrush)
 // Stairs_BuildUpDoom (tag, speed, height, delay, reset)
 {
 	return Level->EV_BuildStairs(arg0, DFloor::buildUp, ln,
-		arg2, SPEED(arg1), TICS(arg3), arg4, 0, DFloor::stairCrush);
+		arg2, SPEED(arg1), TICS(arg3), arg4, 0, stairs_usespecials(Stairs_BuildUpDoomCrush));
 }
 
 FUNC(LS_Stairs_BuildDownDoom)
 // Stair_BuildDownDoom (tag, speed, height, delay, reset)
 {
 	return Level->EV_BuildStairs (arg0, DFloor::buildDown, ln,
-						   arg2, SPEED(arg1), TICS(arg3), arg4, 0, 0);
+						   arg2, SPEED(arg1), TICS(arg3), arg4, 0, stairs_usespecials(Stairs_BuildDownDoom));
 }
 
 FUNC(LS_Stairs_BuildDownDoomSync)
 // Stairs_BuildDownDoomSync (tag, speed, height, reset)
 {
 	return Level->EV_BuildStairs (arg0, DFloor::buildDown, ln,
-						   arg2, SPEED(arg1), 0, arg3, 0, DFloor::stairSync);
+						   arg2, SPEED(arg1), 0, arg3, 0, stairs_usespecials(Stairs_BuildDownDoomSync));
 }
 
 FUNC(LS_Stairs_BuildUpDoomSync)
 // Stairs_BuildUpDoomSync (tag, speed, height, reset)
 {
 	return Level->EV_BuildStairs (arg0, DFloor::buildUp, ln,
-						   arg2, SPEED(arg1), 0, arg3, 0, DFloor::stairSync);
+						   arg2, SPEED(arg1), 0, arg3, 0, stairs_usespecials(Stairs_BuildUpDoomSync));
 }
 
 
@@ -653,7 +692,7 @@ FUNC(LS_Generic_Stairs)
 {
 	DFloor::EStair type = (arg3 & 1) ? DFloor::buildUp : DFloor::buildDown;
 	bool res = Level->EV_BuildStairs (arg0, type, ln,
-							   arg2, SPEED(arg1), 0, arg4, arg3 & 2, 0);
+							   arg2, SPEED(arg1), 0, arg4, arg3 & 2, stairs_usespecials(Generic_Stairs));
 
 	if (res && ln && (ln->flags & ML_REPEAT_SPECIAL) && ln->special == Generic_Stairs)
 		// Toggle direction of next activation of repeatable stairs

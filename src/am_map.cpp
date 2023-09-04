@@ -156,7 +156,11 @@ CUSTOM_CVAR(Int, am_cheat, 0, 0)
 
 
 CVAR(Int, am_rotate, 0, CVAR_ARCHIVE);
+#if !HAVE_RT
 CVAR(Int, am_overlay, 0, CVAR_ARCHIVE);
+#else
+CVAR(Int, am_overlay, 1, CVAR_ARCHIVE);
+#endif
 CVAR(Bool, am_showsecrets, true, CVAR_ARCHIVE);
 CVAR(Bool, am_showmonsters, true, CVAR_ARCHIVE);
 CVAR(Bool, am_showitems, false, CVAR_ARCHIVE);
@@ -3320,8 +3324,10 @@ void DAutomap::Drawer (int bottom)
 
 	drawAuthorMarkers();
 
+#if !HAVE_RT // it's kinda invisible
 	if (!viewactive)
 		drawCrosshair(AMColors[AMColors.XHairColor]);
+#endif
 
 	drawMarks();
 	showSS();
@@ -3465,11 +3471,13 @@ void AM_ToggleMap()
 	}
 	else
 	{
+#if !HAVE_RT // only one click for am_overlay, do not cycle
 		if (am_overlay == 1 && viewactive)
 		{
 			viewactive = false;
 		}
 		else
+#endif
 		{
 			AM_Stop();
 		}

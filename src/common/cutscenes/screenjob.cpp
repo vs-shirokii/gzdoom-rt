@@ -266,7 +266,9 @@ void ScreenJobDraw()
 
 	if (cutscene.runner)
 	{
+#if !HAVE_RT // do not draw black quad
 		twod->ClearScreen();
+#endif
 		ScaleOverrider ovr(twod);
 		IFVIRTUALPTRNAME(cutscene.runner, NAME_ScreenJobRunner, RunFrame)
 		{

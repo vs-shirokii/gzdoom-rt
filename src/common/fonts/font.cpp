@@ -717,7 +717,12 @@ FTranslationID FFont::GetColorTranslation (EColorRange range, PalEntry *color) c
 	if (Translations.Size() == 0) return NO_TRANSLATION;
 	assert(Translations.Size() == (unsigned)NumTextColors);
 
+#if !HAVE_RT
 	if (noTranslate)
+#else
+	// no support for translation with RT
+	if (true)
+#endif
 	{
 		PalEntry retcolor = PalEntry(255, 255, 255, 255);
 		if (range >= 0 && range < NumTextColors && range != CR_UNTRANSLATED)

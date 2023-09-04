@@ -42,6 +42,12 @@ class BossBrain : Actor
 //
 //===========================================================================
 
+// HAVE_RT
+// --
+// Added A_BrainShowTitle
+// --
+// HAVE_RT
+
 class BossEye : Actor
 {
 	Default
@@ -57,6 +63,7 @@ class BossEye : Actor
 		Loop;
 	See:
 		SSWV A 181 A_BrainAwake;
+		SSWV A 0 A_BrainShowTitle;
 		SSWV A 150 A_BrainSpit;
 		Wait;
 	}
@@ -151,6 +158,14 @@ extend class Actor
 	{
 		A_StartSound("brain/pain", CHAN_VOICE, CHANF_DEFAULT, 1, ATTN_NONE);
 	}
+	
+// HAVE_RT begin
+	void A_BrainShowTitle()
+	{
+		// args: titleid, duration_seconds
+		A_RtShowTitle( 0, 5.0 );
+	}
+// HAVE_RT end
 
 	private static void BrainishExplosion(vector3 pos)
 	{

@@ -1122,6 +1122,14 @@ void F2DDrawer::AddPixel(int x1, int y1, uint32_t color)
 	PalEntry p = (PalEntry)color;
 	p.a = 255;
 
+#if HAVE_RT
+	{
+		// emulate via quad
+		twod->AddColorOnlyQuad(x1 - 1, y1 - 1, 2, 2, p);
+		return;
+	}
+#endif
+
 	RenderCommand dg;
 
 	dg.mType = DrawTypePoints;

@@ -94,7 +94,9 @@ extend class StateProvider
 			// some simple trigonometry, that means the vertical angle of the shot
 			// can deviate by as many as ~7.097 degrees.
 
-			LineAttack (ang, PLAYERMISSILERANGE, pitch + Random2[FireSG2]() * (7.097 / 256), damage, 'Hitscan', "BulletPuff");
+// HAVE_RT begin: changed 'BulletPuff' to 'GibBulletPuff'
+			LineAttack (ang, PLAYERMISSILERANGE, pitch + Random2[FireSG2]() * (7.097 / 256), damage, 'Hitscan', "GibBulletPuff");
+// HAVE_RT end
 		}
 	}
 

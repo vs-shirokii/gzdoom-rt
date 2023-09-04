@@ -545,6 +545,10 @@ void P_Recalculate3DFloors(sector_t * sector)
 			}
 		}
 	}
+
+#if HAVE_RT // force no light splitting
+	lightlist.Clear();
+#endif
 }
 
 //==========================================================================

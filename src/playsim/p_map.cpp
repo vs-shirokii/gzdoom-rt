@@ -98,6 +98,10 @@ CVAR(Bool, cl_bloodsplats, true, CVAR_ARCHIVE)
 CVAR(Int, sv_smartaim, 0, CVAR_ARCHIVE | CVAR_SERVERINFO)
 CVAR(Bool, cl_doautoaim, false, CVAR_ARCHIVE)
 
+#if HAVE_RT
+CVARD( Int, rt_blood_repl, 0, CVAR_ARCHIVE, "0: disable gzdoom blood decal and spawn fluid at its place.  1: fluid and decal.  2: only decal (gzdoom default).  Requires cl_bloodsplats=1" )
+#endif
+
 static void CheckForPushSpecial(line_t *line, int side, AActor *mobj, DVector2 * posforwindowcheck = NULL);
 static void SpawnShootDecal(AActor *t1, AActor *defaults, const FTraceResults &trace);
 static void SpawnDeepSplash(AActor *t1, const FTraceResults &trace, AActor *puff);
@@ -5150,7 +5154,11 @@ void P_TraceBleed(int damage, const DVector3 &pos, AActor *actor, DAngle angle, 
 		double cosp = bleedpitch.Cos();
 		DVector3 vdir = DVector3(cosp * bleedang.Cos(), cosp * bleedang.Sin(), -bleedpitch.Sin());
 
+#if !HAVE_RT
 		if (Trace(pos, actor->Sector, vdir, 172, 0, ML_BLOCKEVERYTHING, actor, bleedtrace, TRACE_NoSky))
+#else
+		if (Trace(pos, actor->Sector, vdir, 640, 0, ML_BLOCKEVERYTHING, actor, bleedtrace, TRACE_NoSky))
+#endif
 		{
 			if (bleedtrace.HitType == TRACE_HitWall)
 			{
@@ -5164,6 +5172,26 @@ void P_TraceBleed(int damage, const DVector3 &pos, AActor *actor, DAngle angle, 
 				}
 
 				auto bloodTrans = (bloodcolor != 0 ? actor->BloodTranslation : NO_TRANSLATION);
+
+				#if HAVE_RT
+				int repl = 
+					rt_blood_repl == 1 ? 1 :
+					rt_blood_repl == 2 ? 2 :
+					0;
+
+				if( repl == 0 || repl == 1 )
+				{ 
+					extern void RT_SpawnBlood( float mult, const FVector3& pos, FVector3 dir );
+					RT_SpawnBlood( damage > 20 ? 3 : 2,
+					               FVector3{ bleedtrace.HitPos - vdir * 10 }, // to avoid blood being stuck in a wall
+					               FVector3{ vdir } );
+
+					if( repl == 0 )
+					{
+						continue;
+					}
+				}
+				#endif
 
 				DImpactDecal::StaticCreate(actor->Level, bloodType, bleedtrace.HitPos,
 					bleedtrace.Line->sidedef[bleedtrace.Side], bleedtrace.ffloor, bloodcolor, bloodTrans);

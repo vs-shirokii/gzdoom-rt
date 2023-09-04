@@ -87,6 +87,20 @@
 #include "i_interface.h"
 #include "i_mainwindow.h"
 
+#if HAVE_RT
+#include "m_argv.h"
+#include "s_soundinternal.h"
+
+#include <stb_image.h>
+#include <windowsx.h>
+#include <dwmapi.h>
+#include <future>
+#include <span>
+
+#include "rt/rt_cvars.h"
+#include "rt/defer.h"
+#endif
+
 // MACROS ------------------------------------------------------------------
 
 #ifdef _MSC_VER
@@ -368,7 +382,18 @@ BOOL CALLBACK IWADBoxCallback(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPa
 
 			GetWindowTextW(hDlg, label, countof(label));
 			FString alabel(label);
+#if !HAVE_RT
 			newlabel.Format(GAMENAME " %s: %s", GetVersionString(), alabel.GetChars());
+#else
+			if (alabel.CompareNoCase("Welcome") == 0)
+			{
+				newlabel = GAMENAME ": Ray Traced";
+			}
+			else
+			{
+				newlabel.Format(GAMENAME ": Ray Traced - %s", alabel.GetChars());
+			}
+#endif
 			auto wlabel = newlabel.WideString();
 			SetWindowTextW(hDlg, wlabel.c_str());
 		}
@@ -467,6 +492,1397 @@ BOOL CALLBACK IWADBoxCallback(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPa
 	return FALSE;
 }
 
+#if HAVE_RT
+extern void RT_ShowWarningMessageBox(const char*);
+
+enum class ChooseResult
+{
+	Close,
+	Fallback,
+	UltimateDoom,
+	Doom2,
+};
+
+static int wnd_size_x = 0;
+static int wnd_size_y = 0;
+static int bmp_size_x = 0;
+static int bmp_size_y = 0;
+
+constexpr float progress_max_pixel_offset = 32;
+constexpr float progress_speed = 3.5f;
+
+static float progress_left = 0.0f;
+static float progress_right = 0.0f;
+
+static bool can_activate_left = false;
+static bool can_activate_right = false;
+
+static const uint8_t* showimg_background = nullptr;
+static const uint8_t* showimg_left = nullptr;
+static const uint8_t* showimg_right = nullptr;
+
+struct img_t
+{
+	uint8_t* data;
+	int      w;
+	int      h;
+};
+#if 0
+static img_t back_win7 = {};
+static img_t back_win7_b = {};
+static img_t back_winxp_start = {};
+static img_t back_winxp_start2 = {};
+#endif
+static img_t back_winxp = {};
+static img_t back_winxp_a      = {};
+static img_t back_winxp_c      = {};
+#if 0
+static img_t back_winxp_wlcm = {};
+static img_t back_winxp_empty = {};
+static img_t back_winxp_2 = {};
+static img_t back_winxp_3 = {};
+static img_t back_winxp_4 = {};
+static img_t back_winxp_5 = {};
+static img_t back_winxp_6 = {};
+static img_t back_winxp_7 = {};
+static img_t back_winxp_8 = {};
+static img_t back_winxp_9 = {};
+static img_t back_winxp_b = {};
+#endif
+static img_t back_win95   = {};
+static img_t back_win95b  = {};
+static img_t back_win95_1 = {};
+static img_t back_win95_2 = {};
+#if 0
+static img_t back_win95_3 = {};
+#endif
+static img_t back_dos0    = {};
+static img_t back_dos1    = {};
+static img_t back_dos2    = {};
+static img_t back_dos3    = {};
+static img_t back_safe    = {};
+static img_t back_skipbtn = {};
+static img_t comp_0       = {};
+static img_t comp_1       = {};
+static img_t comp_2       = {};
+static img_t comp_3       = {};
+static img_t comp_3a      = {};
+static img_t comp_4       = {};
+static img_t comp_4a      = {};
+static img_t comp_5       = {};
+
+static std::vector< uint8_t > g_temp{};
+
+static HWND hwnd_button_ultimatedoom = nullptr;
+static HWND hwnd_button_doom2 = nullptr;
+
+#define BUTTON_IDB_ULTIMATEDOOM	0
+#define BUTTON_IDB_DOOM2        1
+
+static std::optional<ChooseResult> chooseDoomWndProc_result{};
+static bool showLoadingText{ false };
+static bool g_showFullSequence{ false };
+std::atomic_bool g_continueMain{ true };
+std::atomic_bool g_forceLnchThreadStop{ false };
+
+static auto g_timepoint_start  = std::optional< std::chrono::system_clock::time_point >{};
+static auto g_timepoint_paused = std::optional< std::chrono::system_clock::time_point >{};
+static void rtime_stop()
+{
+	assert( !g_timepoint_paused );
+	g_timepoint_paused = std::chrono::system_clock::now();
+}
+static void rtime_continue()
+{
+	assert( g_timepoint_paused );
+
+	if( g_timepoint_start && g_timepoint_paused )
+	{
+	auto paused_duration = std::chrono::system_clock::now() - *g_timepoint_paused;
+
+	if( paused_duration.count() > 0 )
+	{
+		g_timepoint_start = *g_timepoint_start + paused_duration;
+	}
+	}
+
+	g_timepoint_paused = {};
+}
+
+static float rtime_getsecondsbetw( const std::chrono::system_clock::time_point& a,
+                                   const std::chrono::system_clock::time_point& b )
+{
+	return float( std::chrono::duration_cast< std::chrono::milliseconds >( b - a ).count() ) /
+	       1000.f;
+}
+static float rtime_now()
+{
+	if( !g_timepoint_start )
+	{
+	g_timepoint_start = std::chrono::system_clock::now();
+	}
+
+	auto sec = rtime_getsecondsbetw( *g_timepoint_start, std::chrono::system_clock::now() );
+
+	if( g_timepoint_paused )
+	{
+	sec = rtime_getsecondsbetw( *g_timepoint_start, *g_timepoint_paused );
+	}
+
+	assert( sec >= 0 );
+	return std::max( 0.f, sec );
+}
+static float rtime_diff( float a, float b )
+{
+	return b - a;
+}
+
+LRESULT CALLBACK ChooseDoomWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	auto l_drawbackground = [](HDC hdc, const void *img)
+		{
+			BITMAPINFO bmi = {};
+			bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+			bmi.bmiHeader.biWidth = wnd_size_x;
+			bmi.bmiHeader.biHeight = -wnd_size_y; // Negative height to indicate top-down image
+			bmi.bmiHeader.biPlanes = 1;
+			bmi.bmiHeader.biBitCount = 32; // 32 bits per pixel (RGBA)
+			bmi.bmiHeader.biCompression = BI_RGB;
+
+			SetDIBitsToDevice(
+				hdc,						// Destination device context
+				0, 0,					// Destination position (x, y)
+				wnd_size_x, wnd_size_y,	// Width and height of the destination rectangle
+				0, 0,					// Source position (x, y)
+				0,							// Start scan line
+				wnd_size_y,					// Number of scan lines
+				img,						// Pointer to image data (RGBA uint8)
+				&bmi,						// Pointer to the BITMAPINFO structure
+				DIB_RGB_COLORS				// Color usage
+			);
+		};
+
+	auto l_drawscaled = []( HDC hdc, const img_t& img ) {
+		if( !img.data )
+		{
+			return;
+		}
+		BITMAPINFO bmi              = {};
+		bmi.bmiHeader.biSize        = sizeof( BITMAPINFOHEADER );
+		bmi.bmiHeader.biWidth       = img.w;
+		bmi.bmiHeader.biHeight      = -img.h; // Negative height to indicate top-down image
+		bmi.bmiHeader.biPlanes      = 1;
+		bmi.bmiHeader.biBitCount    = 32; // 32 bits per pixel (RGBA)
+		bmi.bmiHeader.biCompression = BI_RGB;
+
+		int xDest, yDest, DestWidth, DestHeight;
+		{
+			float sa = float( img.w ) / float( img.h );
+			float da = float( wnd_size_x ) / float( wnd_size_y );
+
+			if( da >= sa )
+			{
+				yDest      = 0;
+				DestHeight = wnd_size_y;
+
+				float blackspace = ( da - sa ) / da; // black color space on left/right
+
+				xDest     = int( ( 0.5f * blackspace ) * float( wnd_size_x ) );
+				DestWidth = int( ( 1.0f - blackspace ) * float( wnd_size_x ) );
+			}
+			else
+			{
+				xDest     = 0;
+				DestWidth = wnd_size_x;
+
+				da               = 1.0f / da;
+				sa               = 1.0f / sa;
+				float blackspace = ( da - sa ) / da; // black color space on top/bottom
+
+				yDest      = int( ( 0.5f * blackspace ) * float( wnd_size_y ) );
+				DestHeight = int( ( 1.0f - blackspace ) * float( wnd_size_y ) );
+			}
+		}
+
+		SetStretchBltMode( hdc, HALFTONE );
+
+		StretchDIBits( hdc,
+		               xDest,
+		               yDest,
+		               DestWidth,
+		               DestHeight,
+		               0,
+		               0,
+		               img.w,
+		               img.h,
+		               img.data,
+		               &bmi,
+		               DIB_RGB_COLORS,
+		               SRCCOPY );
+	};
+	auto l_drawstretched = []( HDC hdc, const img_t& img ) {
+		if( !img.data )
+		{
+			return;
+		}
+		BITMAPINFO bmi              = {};
+		bmi.bmiHeader.biSize        = sizeof( BITMAPINFOHEADER );
+		bmi.bmiHeader.biWidth       = img.w;
+		bmi.bmiHeader.biHeight      = -img.h; // Negative height to indicate top-down image
+		bmi.bmiHeader.biPlanes      = 1;
+		bmi.bmiHeader.biBitCount    = 32; // 32 bits per pixel (RGBA)
+		bmi.bmiHeader.biCompression = BI_RGB;
+
+		SetStretchBltMode( hdc, HALFTONE );
+
+		StretchDIBits( hdc,
+		               0,
+		               0,
+		               wnd_size_x,
+		               wnd_size_y,
+		               0,
+		               0,
+		               img.w,
+		               img.h,
+		               img.data,
+		               &bmi,
+		               DIB_RGB_COLORS,
+		               SRCCOPY );
+	};
+	auto l_drawraw = []( HDC hdc, const img_t& img, int x, int y ) {
+		if( !img.data )
+		{
+			return;
+		}
+		BITMAPINFO bmi              = {};
+		bmi.bmiHeader.biSize        = sizeof( BITMAPINFOHEADER );
+		bmi.bmiHeader.biWidth       = img.w;
+		bmi.bmiHeader.biHeight      = -img.h; // Negative height to indicate top-down image
+		bmi.bmiHeader.biPlanes      = 1;
+		bmi.bmiHeader.biBitCount    = 32; // 32 bits per pixel (RGBA)
+		bmi.bmiHeader.biCompression = BI_RGB;
+
+		SetStretchBltMode( hdc, HALFTONE );
+
+		StretchDIBits( hdc, //
+		               x,
+		               y,
+		               img.w,
+		               img.h,
+		               0,
+		               0,
+		               img.w,
+		               img.h,
+		               img.data,
+		               &bmi,
+		               DIB_RGB_COLORS,
+		               SRCCOPY );
+	};
+
+	if (showLoadingText)
+	{
+	{
+		switch( uMsg )
+		{
+			case WM_CLOSE:
+			case WM_DESTROY: {
+				g_forceLnchThreadStop = true;
+				return 0;
+			}
+			#if 0
+			case WM_ACTIVATE: {
+				if( wParam )
+				{
+					rtime_continue();
+				}
+				else
+				{
+					rtime_stop();
+				}
+				break;
+			}
+			#endif
+			case WM_SETFOCUS: {
+				rtime_continue();
+				break;
+			}
+			case WM_KILLFOCUS: {
+				rtime_stop();
+				break;
+			}
+			default: break;
+		}
+
+		static bool g_waitforclick = false;
+		static bool g_clickfired   = false;
+		if( g_waitforclick )
+		{
+			switch( uMsg )
+			{
+				case WM_KEYDOWN:
+					if( wParam == VK_SPACE || wParam == VK_RETURN || wParam == VK_ESCAPE )
+					{
+						g_clickfired = true;
+					}
+					break;
+				case WM_LBUTTONDOWN:
+				case WM_RBUTTONDOWN: g_clickfired = true; break;
+				default: break;
+			}
+
+			if( g_clickfired )
+			{
+				g_waitforclick = false;
+			}
+		}
+
+
+		if (uMsg == WM_PAINT)
+		{
+			PAINTSTRUCT ps;
+			HDC hdcPaint = BeginPaint(hwnd, &ps);
+
+			// double buffering to prevent flickering
+			HDC hdc = CreateCompatibleDC(hdcPaint);
+			HBITMAP hBitmap = CreateCompatibleBitmap(hdcPaint, wnd_size_x, wnd_size_y);
+			SelectObject( hdc, hBitmap );
+
+			enum flags_e
+			{
+				IMG_CONTINUE_MAIN   = 1 << 0,
+				IMG_WAIT_FOR_CLICK  = 1 << 1,
+				IMG_STRETCH         = 1 << 2,
+				IMG_PLAY_TITLE      = 1 << 3,
+				IMG_PLAY_HWREMOVE   = 1 << 4,
+				IMG_PLAY_HWINSERT   = 1 << 5,
+				IMG_PLAY_CHORD      = 1 << 6,
+				IMG_PLAY_CHORD2     = 1 << 7,
+				IMG_FADEOUT0        = 1 << 8,
+				IMG_PLAY_CHORD3     = 1 << 9,
+				IMG_FADEOUT1        = 1 << 10,
+				IMG_PLAYXPSTART     = 1 << 11,
+				IMG_PLAYERR2        = 1 << 12,
+				IMG_PLAYDING        = 1 << 13,
+				IMG_PLAYCLICK       = 1 << 14,
+				IMG_PLAYBALOON      = 1 << 15,
+				IMG_PLAYCHIMES      = 1 << 16,
+				IMG_WAIT_FOR_CLICK1 = 1 << 17,
+				IMG_WAIT_FOR_CLICK2 = 1 << 18,
+				IMG_PLAYBOOT        = 1 << 19,
+				IMG_PLAYSPEAKER     = 1 << 20,
+				IMG_PLAYTVOFF       = 1 << 21,
+				IMG_PLAYENTER       = 1 << 22,
+				IMG_PLAYENTER2      = 1 << 23,
+				IMG_WAIT_FOR_CLICK3 = 1 << 24,
+				IMG_WAIT_FOR_CLICK4 = 1 << 25,
+				IMG_WAIT_FOR_CLICK5 = 1 << 26,
+				IMG_WAIT_FOR_CLICK6 = 1 << 27,
+				IMG_PLAYENTER3      = 1 << 28,
+			};
+
+			struct frame_t
+			{
+				float  duration{ 0 };
+				img_t* img{ nullptr };
+				int    flags{ 0 };
+			};
+
+			static auto g_fadeout_target = std::optional< float >{};
+			float       fadeout_factor   = 1.0f;
+
+			static uint32_t g_alreadyfaded = 0;
+
+			const frame_t* todraw = nullptr;
+			{
+				constexpr float FADEOUT_TIME = 2.5f;
+
+				if( g_fadeout_target )
+				{
+					float ft       = rtime_diff( rtime_now(), *g_fadeout_target );
+					fadeout_factor = std::clamp( ft, 0.f, FADEOUT_TIME ) / FADEOUT_TIME;
+				}
+
+				static uint8_t g_blueanim[] = { 0, 0, 0, 0 };
+				{
+					static auto g_startanim = rtime_now();
+
+					float ta = rtime_diff( g_startanim, rtime_now() );
+
+					g_blueanim[ 0 ] = uint8_t( std::clamp( 0.7f + 0.3f * sinf( ta * 0.5f ), //
+						                                   0.f,
+						                                   1.f ) *
+						                       255 );
+					g_blueanim[ 1 ] = 102;
+					g_blueanim[ 2 ] = 19;
+
+					g_blueanim[ 0 ] = uint8_t( float( g_blueanim[ 0 ] ) * fadeout_factor );
+					g_blueanim[ 1 ] = uint8_t( float( g_blueanim[ 1 ] ) * fadeout_factor );
+					g_blueanim[ 2 ] = uint8_t( float( g_blueanim[ 2 ] ) * fadeout_factor );
+				}
+				img_t back_blue = { .data = g_blueanim, .w = 1, .h = 1 };
+
+				uint8_t g_bluestatic[] = { 230, 70, 30, 0 };
+				img_t   back_bluest    = { .data = g_bluestatic, .w = 1, .h = 1 };
+
+				const frame_t g_animfull[] = {
+	#if 0
+					{ 2.0f, nullptr },
+					{ 1.5f, &back_win7 },
+					{ 0.4f, &back_win7_b },
+	#endif
+					{ 0.4f, nullptr },
+					{ 1.1f, nullptr, IMG_PLAYBOOT },
+					{ 1.3f, &comp_0 },
+					{ 1.9f, &comp_1, IMG_PLAYSPEAKER },
+					{ 2.3f, &comp_2 },
+					{ 1.5f, &comp_3 },
+					{ 1.0f, &comp_3a, IMG_WAIT_FOR_CLICK3 },
+					{ 1.6f, nullptr, IMG_PLAY_HWREMOVE },
+					{ 1.4f, &back_blue, IMG_STRETCH },
+					{ 10.0f, &back_blue, IMG_WAIT_FOR_CLICK | IMG_FADEOUT0 | IMG_PLAY_TITLE | IMG_STRETCH },
+					{ 4.0f, nullptr },
+					{ 2.8f, &back_winxp, IMG_PLAYBALOON },
+					{ 3.5f, &back_winxp, IMG_PLAYERR2 | IMG_WAIT_FOR_CLICK1 },
+					{ 0.9f, &back_winxp_c, IMG_PLAYCLICK },
+	#if 0
+					{ 1.5f, nullptr },
+					{ 0.3f, &back_winxp_start },
+					{ 0.3f, &back_winxp_start2 },
+					{ 0.3f, &back_winxp_start },
+					{ 0.3f, &back_winxp_start2 },
+					{ 0.3f, &back_winxp_start },
+					{ 0.3f, &back_winxp_start2 },
+					{ 4.0f, nullptr },
+					{ 1.7f, &back_winxp_wlcm, IMG_PLAYXPSTART },
+					{ 2.0f, &back_winxp_empty },
+					{ 4.0f, &back_winxp },
+					{ 1.5f, &back_winxp_2, IMG_PLAYERR2 },
+					{ 1.5f, &back_winxp_3, IMG_PLAYERR3 },
+					{ 0.4f, &back_winxp_4, IMG_PLAYLOW },
+					{ 0.9f, &back_winxp_b },
+					{ 0.9f, &back_winxp_c },
+					{ 3.0f, nullptr },
+					{ 0.3f, &back_winxp_start },
+					{ 0.3f, &back_winxp_start2 },
+					{ 0.3f, &back_winxp_start },
+					{ 0.3f, &back_winxp_start2 },
+					{ 0.3f, &back_winxp_start },
+					{ 0.3f, &back_winxp_start2 },
+					{ 0.3f, &back_winxp_start },
+					{ 0.3f, &back_winxp_start2 },
+	#endif
+					{ 2.0f, nullptr },
+					{ 1.7f, &comp_3 },
+					{ 1.7f, &comp_4 },
+					{ 1.0f, &comp_4a, IMG_WAIT_FOR_CLICK4 },
+					{ 4.0f, nullptr },
+					{ 3.0f, &back_win95, IMG_PLAYCHIMES },
+					{ 1.0f, &back_win95_1, IMG_PLAY_CHORD },
+					{ 2.5f, &back_win95_2, IMG_PLAY_CHORD2 | IMG_WAIT_FOR_CLICK2 },
+	#if 0
+					{ 4.0f, &back_win95_3, IMG_PLAY_CHORD3 },
+	#endif
+					{ 1.7f, &back_win95b, IMG_PLAYDING },
+					{ 1.8f, nullptr },
+					{ 7.0f, &back_safe, IMG_FADEOUT1 },
+					{ 3.3f, nullptr, IMG_PLAYTVOFF },
+					{ 1.0f, &back_dos0, IMG_PLAYENTER },
+					{ 1.3f, &back_dos1, IMG_PLAYENTER2 },
+					{ 1.5f, &back_dos2, IMG_PLAYENTER3 },
+					{ 0.3f, &back_dos3, IMG_CONTINUE_MAIN },
+					{ 0.2f, &back_dos2 },
+					{ 0.3f, &back_dos3 },
+					{ 0.5f, &back_dos2 },
+				};
+
+				constexpr frame_t g_animshort[] = {
+					{ 0.2f, &back_dos0 }, //
+					{ 0.2f, &back_dos1 }, //
+					{ 0.2f, &back_dos2 }, //
+				};
+
+				const auto anim = g_showFullSequence
+				                      ? std::span{ g_animfull, std::size( g_animfull ) }
+					                  : std::span{ g_animshort, std::size( g_animshort ) };
+
+				float dt;
+				{
+					static bool g_started = false;
+					static auto g_prev    = float{};
+					if( !g_started )
+					{
+						g_started = true;
+						g_prev    = rtime_now();
+					}
+					dt = rtime_diff( g_prev, rtime_now() );
+					g_prev = rtime_now();
+				}
+
+				static float seconds_passed = 0;
+				seconds_passed += dt;
+
+				float at     = 0;
+				float at_cur = 0;
+				for( const frame_t& f : anim )
+				{
+					if( seconds_passed - at > 0 )
+					{
+						todraw = &f;
+						at_cur += f.duration;
+						// do not break, get the last
+					}
+					at += f.duration;
+				}
+				
+				if( todraw )
+				{
+					if( ( todraw->flags & IMG_WAIT_FOR_CLICK ) &&
+						!( g_alreadyfaded & IMG_FADEOUT0 ) )
+					{
+						// freeze
+						seconds_passed = at_cur - todraw->duration + 0.05f;
+
+						if( !g_waitforclick )
+						{
+							g_waitforclick = true;
+						}
+						if( g_clickfired )
+						{
+							g_clickfired   = false;
+							g_waitforclick = false;
+							{
+								if( todraw->flags & IMG_FADEOUT0 )
+								{
+									// to next
+									assert( todraw->duration > FADEOUT_TIME );
+									seconds_passed = at_cur - FADEOUT_TIME;
+
+									g_fadeout_target = rtime_now() + FADEOUT_TIME;
+
+									g_alreadyfaded |= IMG_FADEOUT0;
+								}
+								else
+								{
+									// to next
+									seconds_passed = at_cur + 0.05f;
+								}
+							}
+						}
+					}
+
+					static uint32_t g_alreadyclicked = 0;
+
+					constexpr flags_e allclickflags[] = {
+						IMG_WAIT_FOR_CLICK1, IMG_WAIT_FOR_CLICK2, IMG_WAIT_FOR_CLICK3,
+						IMG_WAIT_FOR_CLICK4, IMG_WAIT_FOR_CLICK5, IMG_WAIT_FOR_CLICK6,
+					};
+
+					for( flags_e clickflag : allclickflags )
+					{
+						if( ( todraw->flags & clickflag ) && !( g_alreadyclicked & clickflag ) )
+						{
+							// freeze
+							seconds_passed = at_cur - todraw->duration + 0.05f;
+
+							if( !g_waitforclick )
+							{
+								g_waitforclick = true;
+							}
+							if( g_clickfired )
+							{
+								g_clickfired   = false;
+								g_waitforclick = false;
+
+								g_alreadyclicked |= clickflag;
+
+								// to next
+								seconds_passed = at_cur + 0.05f;
+							}
+						}
+					}
+				}
+
+				if( g_showFullSequence )
+				{
+					float cmt = 0;
+					for( const frame_t& f : g_animfull )
+					{
+						if( f.flags & IMG_CONTINUE_MAIN )
+						{
+							break;
+						}
+						cmt += f.duration;
+					}
+					assert( cmt > 0 );
+					if( seconds_passed > cmt )
+					{
+						g_continueMain = true;
+					}
+				}
+
+				if( todraw && todraw->img && todraw->img->data && ( todraw->flags & IMG_FADEOUT1 ) )
+				{
+					static auto g_fadeout_target1 = rtime_now();
+
+					float ft;
+					{
+						constexpr float FADEOUT_TIME_1 = 0.9f;
+
+						ft = rtime_diff( g_fadeout_target1, rtime_now() );
+						ft = std::clamp( ft, 0.f, FADEOUT_TIME_1 ) / FADEOUT_TIME_1;
+					}
+
+					if( ft >= 0 && ft < 0.999f )
+					{
+						size_t pixcount = todraw->img->w * todraw->img->h;
+						g_temp.resize( pixcount * 4 );
+						memcpy( g_temp.data(), todraw->img->data, pixcount * 4 );
+						{
+							assert( ft >= 0 && ft <= 1 );
+							for( size_t p = 0; p < pixcount; p++ )
+							{
+	#if 0
+								float lum = 0.0722f * float( g_temp[ p * 4 + 0 ] ) + // b
+									        0.7152f * float( g_temp[ p * 4 + 1 ] ) + // g
+									        0.2126f * float( g_temp[ p * 4 + 2 ] );  // r
+
+								uint8_t ilum = uint8_t( std::min( uint32_t( lum ), 255u ) );
+	#endif
+								g_temp[ p * 4 + 0 ] = uint8_t( float( g_temp[ p * 4 + 0 ] ) * ft );
+								g_temp[ p * 4 + 1 ] = uint8_t( float( g_temp[ p * 4 + 1 ] ) * ft );
+								g_temp[ p * 4 + 2 ] = uint8_t( float( g_temp[ p * 4 + 2 ] ) * ft );
+							}
+						}
+
+						static frame_t tempf{};
+						static img_t   tempi{};
+						tempf = *todraw;
+						tempi = *todraw->img;
+
+						tempi.data = g_temp.data();
+						tempf.img  = &tempi;
+						todraw     = &tempf;
+					}
+				}
+			}
+
+			if( todraw && todraw->img )
+			{
+				if( todraw->flags & IMG_STRETCH )
+				{
+					l_drawstretched( hdc, *todraw->img );
+				}
+				else
+				{
+					l_drawscaled( hdc, *todraw->img );
+				}
+
+				if( ( todraw->flags & IMG_FADEOUT0 ) && !( g_alreadyfaded & IMG_FADEOUT0 ) )
+				{
+					static auto g_showafter = rtime_now() + 20;
+
+					if( rtime_diff( rtime_now(), g_showafter ) < 0 )
+					{
+						l_drawraw( hdc,
+							       back_skipbtn,
+							       wnd_size_x - back_skipbtn.w - 32,
+							       wnd_size_y - back_skipbtn.h - 32 );
+					}
+				}
+
+				if( todraw->flags & IMG_PLAYERR2 )
+				{
+					l_drawraw( hdc,
+						       back_winxp_a,
+						       wnd_size_x / 2 - back_winxp_a.w / 2,
+						       wnd_size_y / 2 - back_winxp_a.h / 2 );
+				}
+			}
+
+			if( g_showFullSequence && todraw )
+			{
+				static int g_alreadyplayed = 0;
+
+				constexpr std::pair< flags_e, const char* > sounds[] = {
+					{ IMG_PLAY_TITLE, "sounds/lnch/title.ogg" },
+					{ IMG_PLAY_HWREMOVE, "sounds/lnch/hwremove.mp3" },
+					{ IMG_PLAY_HWINSERT, "sounds/lnch/hwinsert.mp3" },
+					{ IMG_PLAY_CHORD, "sounds/lnch/chord.mp3" },
+					{ IMG_PLAY_CHORD2, "sounds/lnch/chord.mp3" },
+					{ IMG_PLAY_CHORD3, "sounds/lnch/chord.mp3" },
+					{ IMG_PLAYXPSTART, "sounds/lnch/startup.mp3" },
+					{ IMG_PLAYERR2, "sounds/lnch/exclam.mp3" },
+					{ IMG_PLAYDING, "sounds/lnch/ding.mp3" },
+					{ IMG_PLAYCLICK, "sounds/lnch/click.mp3" },
+					{ IMG_PLAYBALOON, "sounds/lnch/notify.mp3" },
+					{ IMG_PLAYCHIMES, "sounds/lnch/chimes.mp3" },
+					{ IMG_PLAYBOOT, "sounds/lnch/boot.ogg" },
+					{ IMG_PLAYSPEAKER, "sounds/lnch/pcspkr.ogg" },
+					{ IMG_PLAYTVOFF, "sounds/lnch/off.ogg" },
+					{ IMG_PLAYENTER, "sounds/lnch/center.ogg" },
+					{ IMG_PLAYENTER2, "sounds/lnch/center.ogg" },
+					{ IMG_PLAYENTER3, "sounds/lnch/center.ogg" },
+				};
+
+				static auto g_fadeoutchannels = std::vector< FSoundChan* >{};
+
+				extern FSoundID T_FindSound( const char* name );
+
+				for( const auto& [ f, name ] : sounds )
+				{
+					if( g_alreadyplayed & f )
+					{
+						continue;
+					}
+
+					if( todraw->flags & f )
+					{
+						FSoundID sound = T_FindSound( name );
+						FSoundChan* chan  = soundEngine->StartSound( SOURCE_None, //
+                                                                    nullptr,
+                                                                    nullptr,
+                                                                    CHAN_AUTO,
+                                                                    CHANF_UI,
+                                                                    sound,
+                                                                    1.f,
+                                                                    ATTN_NONE );
+
+						g_alreadyplayed |= f;
+
+						if( todraw->flags & IMG_FADEOUT0 )
+						{
+							if( chan )
+							{
+								g_fadeoutchannels.push_back( chan );
+							}
+						}
+					}
+				}
+
+				if( g_fadeout_target )
+				{
+					if( rtime_diff( rtime_now(), *g_fadeout_target ) <= 0 )
+					{
+						for( FSoundChan* chan : g_fadeoutchannels )
+						{
+							soundEngine->StopChannel( chan );
+						}
+						g_fadeoutchannels.clear();
+					}
+					else
+					{
+						for( FSoundChan* chan : g_fadeoutchannels )
+						{
+							soundEngine->SetVolume( chan, fadeout_factor );
+						}
+					}
+				}
+			}
+
+			BitBlt(hdcPaint, 0, 0, wnd_size_x, wnd_size_y, hdc, 0, 0, SRCCOPY);
+			DeleteObject(hBitmap);
+			DeleteDC(hdc);
+
+			EndPaint(hwnd, &ps);
+
+			return 0;
+		}
+
+		return DefWindowProc(hwnd, uMsg, wParam, lParam);
+	}
+	}
+
+
+	const int xOffsetFromCenter = wnd_size_x / 28;
+	const int yOffset = (wnd_size_y - bmp_size_y) / 2 + (wnd_size_y / 9);
+
+	const int leftoffset[] = {
+		wnd_size_x / 2 - xOffsetFromCenter - bmp_size_x,
+		yOffset,
+	};
+	const int rightoffset[] = {
+		wnd_size_x / 2 + xOffsetFromCenter,
+		yOffset,
+	};
+
+    switch (uMsg)
+    {
+    case WM_CREATE:
+    {
+        hwnd_button_ultimatedoom = CreateWindow(
+            L"BUTTON", // predefined class
+            L"ultimatedoom",
+            WS_TABSTOP | WS_CHILD | BS_DEFPUSHBUTTON, // | WS_VISIBLE,
+            leftoffset[0], leftoffset[1],
+			bmp_size_x, bmp_size_y,
+            hwnd,
+            (HMENU)BUTTON_IDB_ULTIMATEDOOM,
+            GetModuleHandle(NULL),
+            NULL);
+
+        hwnd_button_doom2 = CreateWindow(
+            L"BUTTON", // predefined class
+            L"doom2",
+            WS_TABSTOP | WS_CHILD | BS_DEFPUSHBUTTON, // | WS_VISIBLE,
+			rightoffset[0], rightoffset[1],
+			bmp_size_x, bmp_size_y,
+			hwnd,
+			(HMENU)BUTTON_IDB_DOOM2,
+			GetModuleHandle(NULL),
+			NULL);
+
+		return 0;
+	}
+	case WM_PAINT:
+	{
+		PAINTSTRUCT ps;
+		HDC hdcPaint = BeginPaint(hwnd, &ps);
+
+		// double buffering to prevent flickering
+		HDC hdc = CreateCompatibleDC(hdcPaint);
+		HBITMAP hBitmap = CreateCompatibleBitmap(hdcPaint, wnd_size_x, wnd_size_y);
+		SelectObject(hdc, hBitmap);
+
+		l_drawbackground(hdc, showimg_background);
+
+        auto drawside = [&](const uint8_t* rgba, bool left)
+        {
+            BITMAPINFO bmi = { 0 };
+            bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+            bmi.bmiHeader.biWidth = bmp_size_x;
+            bmi.bmiHeader.biHeight = -bmp_size_y; // Negative height to indicate top-down image
+            bmi.bmiHeader.biPlanes = 1;
+            bmi.bmiHeader.biBitCount = 32; // 32 bits per pixel (RGBA)
+            bmi.bmiHeader.biCompression = BI_RGB;
+
+			auto smooth = [](float x) -> float
+			{
+				constexpr float edge0 = 0.0f;
+				constexpr float edge1 = 1.0f;
+				if (x <= edge0) return 0.0;
+				if (x >= edge1) return 1.0;
+				x = (x - edge0) / (edge1 - edge0);
+				return x * x * (3 - 2 * x);
+			};
+			
+			int pos[] = {
+				left ? leftoffset[0] : rightoffset[0],
+				left ? leftoffset[1] : rightoffset[1],
+			};
+			pos[1] -= int(progress_max_pixel_offset * smooth(left ? progress_left : progress_right));
+
+            SetDIBitsToDevice(
+                hdc,						// Destination device context
+				pos[0], pos[1],		// Destination position (x,y)
+                bmp_size_x, bmp_size_y,	// Width and height of the destination rectangle
+                0, 0,					// Source position (x, y)
+                0,							// Start scan line
+                bmp_size_y,					// Number of scan lines
+                rgba,						// Pointer to image data (RGBA uint8)
+                &bmi,						// Pointer to the BITMAPINFO structure
+                DIB_RGB_COLORS				// Color usage
+            );
+		};
+
+		drawside(showimg_left, true);
+		drawside(showimg_right, false);
+
+		BitBlt(hdcPaint, 0, 0, wnd_size_x, wnd_size_y, hdc, 0, 0, SRCCOPY);
+		DeleteObject(hBitmap);
+		DeleteDC(hdc);
+
+		EndPaint(hwnd, &ps);
+
+		return 0;
+	}
+    case WM_MOUSEMOVE:
+	{
+		HCURSOR hCursor = LoadCursor(nullptr, IDC_ARROW);
+		SetCursor(hCursor);
+		break;
+	}
+	case WM_LBUTTONDOWN:
+	{
+		POINT p_local = { GET_X_LPARAM( lParam ), GET_Y_LPARAM( lParam ) };
+		POINT p       = p_local;
+        ClientToScreen(hwnd, &p);
+
+		RECT rect_close_local = { .left   = int( wnd_size_x * 0.9f ),
+				                  .top    = 0,
+				                  .right  = wnd_size_x,
+				                  .bottom = int( wnd_size_y * 0.1f ) };
+		RECT rect_1{}, rect_2{};
+        GetWindowRect(hwnd_button_ultimatedoom, &rect_1);
+        GetWindowRect(hwnd_button_doom2, &rect_2);
+        if (PtInRect(&rect_1, p) && can_activate_left)
+        {
+            chooseDoomWndProc_result = ChooseResult::UltimateDoom;
+        }
+        else if (PtInRect(&rect_2, p) && can_activate_right)
+        {
+            chooseDoomWndProc_result = ChooseResult::Doom2;
+        }
+		else if( PtInRect( &rect_close_local, p_local ) )
+        {
+            PostMessage(hwnd, WM_CLOSE, 0, 0);
+        }
+
+		return 0;
+	}
+	case WM_KEYDOWN:
+	{
+		if (wParam == VK_ESCAPE)
+		{
+			PostMessage(hwnd, WM_CLOSE, 0, 0);
+			return 0;
+		}
+		break;
+	}
+	case WM_CLOSE:
+	case WM_DESTROY:
+	{
+		if (!chooseDoomWndProc_result)
+		{
+			chooseDoomWndProc_result = ChooseResult::Close;
+		}
+		return 0;
+	}
+	default:
+	{
+		break;
+	}
+	}
+
+	return DefWindowProc(hwnd, uMsg, wParam, lParam);
+}
+
+static std::unique_ptr<std::jthread> g_rt_waitRendererFullInit{};
+
+void RT_CloseLauncherWindow()
+{
+	if (g_rt_waitRendererFullInit)
+	{
+		// request stop and join
+		g_rt_waitRendererFullInit.reset();
+	}
+}
+
+static void SetWindowRounding( HWND hwnd, bool rounded )
+{
+	static HMODULE dwm = LoadLibrary( L"dwmapi.dll" );
+	if( !dwm )
+	{
+		return;
+	}
+
+	static auto dwmSetWindowAttribute = reinterpret_cast< decltype( &DwmSetWindowAttribute ) >(
+	    GetProcAddress( dwm, "DwmSetWindowAttribute" ) );
+	if( !dwmSetWindowAttribute )
+	{
+		return;
+	}
+
+	constexpr uint32_t dwmwa_window_corner_preference = 33;
+
+	const uint32_t dwmwcp_round = rounded ? 2  // DWM_WINDOW_CORNER_PREFERENCE::DWMWCP_ROUND
+	                                      : 1; // DWM_WINDOW_CORNER_PREFERENCE::DWMWCP_DONOTROUND
+
+	dwmSetWindowAttribute(
+	    hwnd, dwmwa_window_corner_preference, &dwmwcp_round, sizeof( dwmwcp_round ) );
+}
+
+extern std::atomic< HWND > g_msgbox_parent;
+
+static void AskUserToChoose(std::stop_token stopToken, std::promise<ChooseResult> &result, bool hasUltimateDoom, bool hasDoom2 )
+{
+	if (!hasUltimateDoom && !hasDoom2)
+	{
+		RT_ShowWarningMessageBox("Can't find Doom (1993) or Doom II.\nPlease, install them on Steam");
+		result.set_value(ChooseResult::Close);
+		return;
+	}
+
+	static auto loadimg2 = []( const char* path ) -> img_t {
+		int  x, y, channels;
+		auto img = stbi_load( path, &x, &y, &channels, 4 );
+		if( !img || x <= 0 || y <= 0 )
+		{
+			return {};
+		}
+		// rgb -> bgr for winapi
+		for( int i = 0; i < x; i++ )
+		{
+			for( int j = 0; j < y; j++ )
+			{
+				int pix = i * y + j;
+				std::swap( img[ 4 * pix + 0 ], img[ 4 * pix + 2 ] );
+			}
+		}
+		return {
+			.data = img,
+			.w    = x,
+			.h    = y,
+		};
+	};
+
+	std::pair<int, int> backsize;
+	std::optional<std::pair<int, int>> commonsize;
+	std::string failedload_path{};
+	std::string failedimgsize_path{};
+	auto loadimg = [&](const char* path, bool isbackground)
+    {
+		img_t i = loadimg2( path );
+		if( !i.data )
+        {
+            failedload_path = path;
+        }
+		if (isbackground)
+		{
+			if (backsize.first != 0 && backsize.second != 0)
+			{
+				if( i.w != backsize.first || i.h != backsize.second )
+				{
+					failedimgsize_path = path;
+				}
+			}
+			else
+			{
+				backsize = { i.w, i.h };
+			}
+		}
+		else
+		{
+			if (commonsize)
+			{
+				if( i.w != commonsize->first || i.h != commonsize->second )
+				{
+					failedimgsize_path = path;
+				}
+			}
+			else
+			{
+				commonsize = { i.w, i.h };
+			}
+		}
+		return i.data;
+	};
+	auto img_background = loadimg("rt/launcher/back.png", true);
+	auto img_doom1= loadimg("rt/launcher/doom1.png", false);
+	auto img_doom1_gray= loadimg("rt/launcher/doom1-gray.png", false);
+	auto img_doom2 = loadimg("rt/launcher/doom2.png", false);
+	auto img_doom2_gray = loadimg("rt/launcher/doom2-gray.png", false);
+
+	if (!failedload_path.empty())
+	{
+		RT_ShowWarningMessageBox(("Launcher failure. Failed to load:\n" + failedload_path).c_str());
+		result.set_value(ChooseResult::Fallback);
+		return;
+	}
+	if (!failedimgsize_path.empty())
+	{
+		RT_ShowWarningMessageBox(("Launcher failure. All images should be the same size:\n" + failedimgsize_path).c_str());
+		result.set_value(ChooseResult::Fallback);
+		return;
+	}
+	if (backsize.first == 0 || backsize.second == 0)
+	{
+		RT_ShowWarningMessageBox("Launcher failure. Background texture size is 0:\nrt/launcher/back.png");
+		result.set_value(ChooseResult::Fallback);
+		return;
+	}
+
+	// with StretchBlt:
+	// scaling down brings artifacts,
+	// scaling up is too pixelated
+	// so wnd_size_x, wnd_size_y must match images
+	bmp_size_x = commonsize->first;
+	bmp_size_y = commonsize->second;
+	wnd_size_x = backsize.first;
+	wnd_size_y = backsize.second;
+
+	const wchar_t *winname = L"Choose Doom";
+
+	WNDCLASS wc = {
+		.lpfnWndProc = ChooseDoomWndProc,
+		.hInstance = GetModuleHandle(nullptr),
+		.lpszClassName = winname,
+	};
+
+	if (!RegisterClass(&wc))
+	{
+		RT_ShowWarningMessageBox("Launcher failure. Window Registration failed.");
+		result.set_value(ChooseResult::Fallback);
+		return;
+	}
+
+	int screen_size_y = GetSystemMetrics(SM_CYSCREEN);
+	int screen_size_x = GetSystemMetrics(SM_CXSCREEN);
+
+	HWND hwnd = CreateWindowEx(
+		WS_EX_APPWINDOW,
+		winname,
+		winname,
+		WS_OVERLAPPED,
+		(screen_size_x - wnd_size_x) / 2, (screen_size_y - wnd_size_y) / 2,
+		wnd_size_x, wnd_size_y,
+		NULL,
+		NULL,
+		GetModuleHandle(nullptr),
+		NULL
+	);
+
+	if (!hwnd)
+	{
+		RT_ShowWarningMessageBox("Launcher failure. Window Creation failed.");
+		result.set_value(ChooseResult::Fallback);
+		return;
+	}
+
+	// borderless
+	{
+		LONG lStyle = GetWindowLong(hwnd, GWL_STYLE);
+		lStyle &= ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZE | WS_MAXIMIZE | WS_SYSMENU);
+		SetWindowLong(hwnd, GWL_STYLE, lStyle);
+
+		LONG lExStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
+		lExStyle &= ~(WS_EX_DLGMODALFRAME | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE);
+		SetWindowLong(hwnd, GWL_EXSTYLE, lExStyle);
+
+		SetWindowPos(hwnd, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+		SetWindowRounding( hwnd, true );
+	}
+
+	ShowWindow( hwnd, SW_SHOW );
+	g_msgbox_parent = hwnd;
+
+	can_activate_left = hasUltimateDoom;
+	can_activate_right = hasDoom2;
+	showimg_background = img_background;
+	showimg_left = can_activate_left ? img_doom1 : img_doom1_gray;
+	showimg_right = can_activate_right ? img_doom2 : img_doom2_gray;
+
+	progress_left = 0.0f;
+	progress_right = 0.0f;
+
+	using clock = std::chrono::high_resolution_clock;
+	auto prevtime = clock::now();
+
+
+	auto msg = MSG{};
+	while (GetMessage(&msg, hwnd, 0, 0))
+	{
+		TranslateMessage(&msg);
+		DispatchMessage(&msg);
+
+		if (chooseDoomWndProc_result)
+		{
+			break;
+		}
+
+
+		POINT p;
+		GetCursorPos(&p);
+
+		RECT rect_1, rect_2;
+		GetWindowRect(hwnd_button_ultimatedoom, &rect_1);
+		GetWindowRect(hwnd_button_doom2, &rect_2);
+
+		enum class side_t
+		{
+			none,
+			left,
+			right,
+		};
+		auto chosen =
+			PtInRect(&rect_1, p) ? side_t::left :
+			PtInRect(&rect_2, p) ? side_t::right :
+			side_t::none;
+
+		float deltatime =
+			std::chrono::duration<float>{ clock::now() - prevtime }.count();
+		prevtime = clock::now();
+
+		progress_left  += (chosen == side_t::left  ? 1.f : -1.f) * progress_speed * deltatime * (can_activate_left ? 1.f : 0.f);
+		progress_right += (chosen == side_t::right ? 1.f : -1.f) * progress_speed * deltatime * (can_activate_right ? 1.f : 0.f);
+
+		progress_left = clamp(progress_left, 0.f, 1.f);
+		progress_right = clamp(progress_right, 0.f, 1.f);
+
+
+		RedrawWindow(hwnd, NULL, NULL, RDW_INVALIDATE);
+	}
+
+	// if need a sequence
+	if( cvar::rt_firststart )
+	{
+		g_continueMain     = false;
+		g_showFullSequence = true;
+	}
+
+	const auto userChosen = chooseDoomWndProc_result ? *chooseDoomWndProc_result : ChooseResult::Close;
+	result.set_value( userChosen );
+
+	// if launching a game, draw loading
+	if (userChosen == ChooseResult::UltimateDoom ||
+		userChosen == ChooseResult::Doom2)
+	{
+		showLoadingText = true;
+
+		back_dos0 = loadimg2( "rt/launcher/dos0.png" );
+		back_dos1 = loadimg2( "rt/launcher/dos1.png" );
+		back_dos2 = loadimg2( "rt/launcher/dos2.png" );
+		if( g_showFullSequence )
+		{
+			back_dos3 = loadimg2( "rt/launcher/dos3.png" );
+	#if 0
+			back_win7    = loadimg2( "rt/launcher/win7.png" );
+			back_win7_b  = loadimg2( "rt/launcher/win7b.png" );
+			back_winxp_start  = loadimg2( "rt/launcher/winxp_start.png" );
+			back_winxp_start2 = loadimg2( "rt/launcher/winxp_start2.png" );
+			back_winxp_wlcm   = loadimg2( "rt/launcher/winxp_wlcm.png" );
+			back_winxp_empty  = loadimg2( "rt/launcher/winxp_empty.png" );
+			back_winxp   = loadimg2( "rt/launcher/winxp.png" );
+			back_winxp_2 = loadimg2( "rt/launcher/winxp2.png" );
+			back_winxp_3 = loadimg2( "rt/launcher/winxp3.png" );
+			back_winxp_4 = loadimg2( "rt/launcher/winxp4.png" );
+			back_winxp_5 = loadimg2( "rt/launcher/winxp5.png" );
+			back_winxp_6 = loadimg2( "rt/launcher/winxp6.png" );
+			back_winxp_7 = loadimg2( "rt/launcher/winxp7.png" );
+			back_winxp_8 = loadimg2( "rt/launcher/winxp8.png" );
+			back_winxp_9 = loadimg2( "rt/launcher/winxp9.png" );
+			back_winxp_b = loadimg2( "rt/launcher/winxpb.png" );
+			back_win95_3 = loadimg2( "rt/launcher/win95_3.png" );
+	#endif
+			back_winxp   = loadimg2( "rt/launcher/winxp.png" );
+			back_winxp_a = loadimg2( "rt/launcher/winxpa.png" );
+			back_winxp_c = loadimg2( "rt/launcher/winxpc.png" );
+			back_win95   = loadimg2( "rt/launcher/win95_0.png" );
+			back_win95b  = loadimg2( "rt/launcher/win95b.png" );
+			back_win95_1 = loadimg2( "rt/launcher/win95_1.png" );
+			back_win95_2 = loadimg2( "rt/launcher/win95_2.png" );
+			back_safe    = loadimg2( "rt/launcher/safe.png" );
+			back_skipbtn = loadimg2( "rt/launcher/skip.png" );
+			comp_0       = loadimg2( "rt/launcher/comp_0.png" );
+			comp_1       = loadimg2( "rt/launcher/comp_1.png" );
+			comp_2       = loadimg2( "rt/launcher/comp_2.png" );
+			comp_3       = loadimg2( "rt/launcher/comp_3.png" );
+			comp_3a      = loadimg2( "rt/launcher/comp_3a.png" );
+			comp_4       = loadimg2( "rt/launcher/comp_4.png" );
+			comp_4a      = loadimg2( "rt/launcher/comp_4a.png" );
+			comp_5       = loadimg2( "rt/launcher/comp_5.png" );
+		}
+
+		if( g_showFullSequence )
+		{
+			int monitor_w, monitor_h;
+			{
+				HMONITOR    hMonitor = MonitorFromWindow( hwnd, MONITOR_DEFAULTTONEAREST );
+				MONITORINFO monitorInfo;
+				monitorInfo.cbSize = sizeof( MONITORINFO );
+				GetMonitorInfo( hMonitor, &monitorInfo );
+				monitor_w = monitorInfo.rcMonitor.right - monitorInfo.rcMonitor.left;
+				monitor_h = monitorInfo.rcMonitor.bottom - monitorInfo.rcMonitor.top;
+			}
+
+			wnd_size_x = monitor_w;
+			wnd_size_y = monitor_h;
+
+			SetWindowLong( hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE );
+			SetWindowLong( hwnd, GWL_EXSTYLE, 0 );
+			SetWindowPos( hwnd, HWND_TOP, 0, 0, wnd_size_x, wnd_size_y, SWP_FRAMECHANGED );
+			SetWindowRounding( hwnd, false );
+		}
+		else
+		{
+			wnd_size_x = back_dos0.w * 2;
+			wnd_size_y = back_dos0.h * 2;
+
+			int screenWidth  = GetSystemMetrics( SM_CXSCREEN );
+			int screenHeight = GetSystemMetrics( SM_CYSCREEN );
+			int posX         = ( screenWidth - wnd_size_x ) / 2;
+			int posY         = ( screenHeight - wnd_size_y ) / 2;
+			SetWindowPos(
+			    hwnd, HWND_TOP, posX, posY, wnd_size_x, wnd_size_y, SWP_FRAMECHANGED );
+		}
+
+		auto msg2 = MSG{};
+		while (GetMessage(&msg2, hwnd, 0, 0))
+		{
+			TranslateMessage(&msg2);
+			DispatchMessage(&msg2);
+
+			RedrawWindow(hwnd, NULL, NULL, RDW_INVALIDATE);
+
+			if( stopToken.stop_requested() || g_forceLnchThreadStop.load() )
+			{
+				break;
+			}
+		}
+	}
+
+	g_continueMain = true;
+
+	g_msgbox_parent = nullptr;
+	DestroyWindow(hwnd);
+	UnregisterClass(winname, GetModuleHandle(NULL));
+
+	void* stbiImgToFree[] = {
+		img_background,
+		img_doom1,
+		img_doom1_gray,
+		img_doom2,
+		img_doom2_gray,
+	#if 0
+		back_win7.data,
+		back_win7_b.data,
+		back_winxp_start.data,
+		back_winxp_start2.data,
+		back_winxp_wlcm.data,
+		back_winxp_empty.data,
+		back_winxp_2.data,
+		back_winxp_3.data,
+		back_winxp_4.data,
+		back_winxp_5.data,
+		back_winxp_6.data,
+		back_winxp_7.data,
+		back_winxp_8.data,
+		back_winxp_9.data,
+		back_winxp_b.data,
+		back_win95_3.data,
+	#endif
+		back_winxp.data,
+		back_winxp_a.data,
+		back_winxp_c.data,
+		back_win95.data,
+		back_win95b.data,
+		back_win95_1.data,
+		back_win95_2.data,
+		back_dos0.data,
+		back_dos1.data,
+		back_dos2.data,
+		back_dos3.data,
+		back_safe.data,
+		back_skipbtn.data,
+		comp_0.data,
+		comp_1.data,
+		comp_2.data,
+		comp_3.data,
+		comp_3a.data,
+		comp_4.data,
+		comp_4a.data,
+		comp_5.data,
+	};
+	for (void *stbiimg : stbiImgToFree)
+	{
+		if( stbiimg )
+		{
+			stbi_image_free( stbiimg );
+		}
+	}
+	g_temp = {};
+}
+#endif
+
 //==========================================================================
 //
 // I_PickIWad
@@ -477,6 +1893,55 @@ BOOL CALLBACK IWADBoxCallback(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPa
 
 int I_PickIWad(WadStuff *wads, int numwads, bool showwin, int defaultiwad, int& autoloadflags)
 {
+#if HAVE_RT
+    auto ultimateDoom = std::optional< int >{};
+    auto doom2 = std::optional< int >{};
+    for (int i = 0; i < numwads; i++)
+    {
+        if (wads[i].Autoname == FString{ "doom.id.doom1.ultimate" })
+        {
+#if 0 // TODO: uncomment when Doom 1 is done
+	        ultimateDoom = i;
+#endif
+        }
+        else if (wads[i].Autoname == FString{ "doom.id.doom2.commercial" })
+        {
+            doom2 = i;
+        }
+    }
+
+    auto res = ChooseResult::Fallback;
+	if (Args->CheckParm("-rtdoom1") > 0)
+	{
+		res = ChooseResult::UltimateDoom;
+	}
+	else if (Args->CheckParm("-rtdoom2") > 0)
+	{
+		res = ChooseResult::Doom2;
+	}
+	else if (Args->CheckParm("-rtnolauncher") == 0)
+	{
+		auto resPromise = std::promise<ChooseResult>{};
+		auto resFuture = resPromise.get_future();
+
+		g_rt_waitRendererFullInit = std::make_unique<std::jthread>(
+			AskUserToChoose, 
+			std::ref(resPromise),
+			ultimateDoom.has_value(),
+			doom2.has_value());
+		
+		res = resFuture.get();
+	}
+
+    switch (res)
+    {
+    case ChooseResult::UltimateDoom: assert(ultimateDoom); return *ultimateDoom;
+    case ChooseResult::Doom2: assert(doom2); return *doom2;
+    case ChooseResult::Close: return -1;
+    case ChooseResult::Fallback:break;
+    default:assert(0); break;
+    }
+#endif
 	int vkey;
 	pAutoloadflags = &autoloadflags;
 	if (stricmp(queryiwad_key, "shift") == 0)

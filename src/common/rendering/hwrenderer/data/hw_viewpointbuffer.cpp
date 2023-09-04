@@ -135,3 +135,15 @@ void HWViewpointBuffer::Clear()
 	mBuffer = mBufferPipeline[mPipelinePos];
 }
 
+#if HAVE_RT
+auto HWViewpointBuffer::FetchViewpoint(size_t bindRangeStart) const -> const HWViewpointUniforms&
+{
+    assert(bindRangeStart % mBlockAlign == 0);
+    mBuffer->Map();
+    auto ptr = static_cast<uint8_t*>(mBuffer->Memory()) + bindRangeStart;
+    // assert(size_t(ptr) % mBlockAlign == 0);
+    auto instance = reinterpret_cast<const HWViewpointUniforms*>(ptr);
+    mBuffer->Unmap();
+    return *instance;
+}
+#endif

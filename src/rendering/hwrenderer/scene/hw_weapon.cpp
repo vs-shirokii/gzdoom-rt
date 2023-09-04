@@ -49,6 +49,10 @@
 
 #include "vm.h"
 
+#if HAVE_RT
+#include "rt/rt_state.h"
+#endif
+
 EXTERN_CVAR(Float, transsouls)
 EXTERN_CVAR(Int, gl_fuzztype)
 EXTERN_CVAR(Bool, r_drawplayersprites)
@@ -122,8 +126,29 @@ void HWDrawInfo::DrawPlayerSprites(bool hudModelStep, FRenderState &state)
 {
 	auto oldlightmode = lightmode;
 	if (!hudModelStep && isSoftwareLighting(oldlightmode)) SetFallbackLightMode();	// Software lighting cannot handle 2D content.
+#if HAVE_RT
+	uint32_t i = hudModelStep ? 4 : 0;
+	assert(hudsprites.Size() < 4);
+#endif
 	for (auto &hudsprite : hudsprites)
 	{
+#if HAVE_RT
+		auto rttype = rtstate.push_type(RtPrim::FirstPerson);
+		auto rttemp = rtstate.push_uniqueid(hudsprite.weapon, i++);
+
+		const bool issprite = !hudsprite.mframe && hudsprite.texture;
+
+		auto rtxexp = rtstate.push_type(issprite ? RtPrim::ExportInstance : RtPrim::Identity);
+		assert(hudsprite.weapon->GetFrame() >= 0 && hudsprite.weapon->GetFrame() <= 255);
+		auto rtname = rtstate.push_exportinstance_name(
+			issprite ? hudsprite.texture->GetName().GetChars() : nullptr,
+			uint8_t(hudsprite.weapon->GetFrame()));
+
+		auto rtrot = rtstate.push_apply_spriterotation(
+			float(hudsprite.owner ? hudsprite.owner->Angles.Pitch.Radians() : 0.0f),
+			float(hudsprite.owner ? hudsprite.owner->Angles.Yaw.Radians() : 0.0f));
+#endif
+
 		if ((!!hudsprite.mframe) == hudModelStep)
 			DrawPSprite(&hudsprite, state);
 	}

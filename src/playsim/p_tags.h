@@ -83,6 +83,33 @@ public:	// The ones below are called by functions that cannot be declared as fri
 
 	int CountLineIDs(const line_t *line);
 	int GetLineID(const line_t *line, int index);
+
+#if HAVE_RT
+	std::vector< int > RT_GetAllSectorTags( const sector_t* sector ) /* const */
+	{
+		int count = CountSectorTags( sector ); // CountSectorTags is const, actually
+
+		std::vector< int > res;
+		res.reserve( count );
+		for( int i = 0; i < count; i++ )
+		{
+			int tag = GetSectorTag( sector, i ); // GetSectorTag is const, actually
+			if( tag != 0 )
+			{
+				res.push_back( tag );
+			}
+		}
+		return res;
+	}
+	bool RT_SectorIsLinkedByTag( const sector_t* sector ) const
+	{
+		return SectorHasTags(sector);
+	}
+	bool RT_LineHasZeroTag( const line_t* line ) const
+	{
+		return GetFirstLineID(line) == 0;
+	}
+#endif
 };
 
 class FSectorTagIterator

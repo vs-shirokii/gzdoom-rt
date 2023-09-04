@@ -834,7 +834,9 @@ void HWDrawInfo::DrawScene(int drawmode)
 	auto& RenderState = *screen->RenderState();
 
 	RenderState.SetDepthMask(true);
+#if !HAVE_RT
 	if (!gl_no_skyclear) portalState.RenderFirstSkyPortal(recursion, this, RenderState);
+#endif
 
 	RenderScene(RenderState);
 

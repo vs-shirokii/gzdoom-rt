@@ -317,6 +317,7 @@ unsigned FSavegameManagerBase::ExtractSaveData(int index)
 		if (pic >= 0)
 		{
 			FileReader picreader = resf->GetEntryReader(pic, FileSys::READER_NEW, FileSys::READERFLAG_SEEKABLE);
+#if !HAVE_RT // removed as makeTextureName relied on FGameTexture::GetTexture()->GetImage() which is null for save game pictures
 			PNGHandle *png = M_VerifyPNG(picreader);
 			if (png != nullptr)
 			{
@@ -328,6 +329,7 @@ unsigned FSavegameManagerBase::ExtractSaveData(int index)
 					SavePic = nullptr;
 				}
 			}
+#endif
 		}
 		delete resf;
 	}

@@ -54,6 +54,7 @@ add_definitions( -DTHIS_IS_GZDOOM )
 if( WIN32 )
 
 	add_definitions( -D_WIN32 )
+	add_definitions( -DRAYTRACED )
 
 	set( PROJECT_LIBRARIES
 		psapi
@@ -601,6 +602,7 @@ file( GLOB HEADER_FILES
 	common/rendering/gl_load/*.h
 	common/rendering/gles/*.h
 	common/rendering/hwrenderer/data/*.h
+	common/rendering/rt/*.h
 	common/rendering/vulkan/*.h
 	common/rendering/vulkan/system/*.h
 	common/rendering/vulkan/renderer/*.h
@@ -632,7 +634,6 @@ file( GLOB HEADER_FILES
 	rendering/swrenderer/viewport/*.h
 	rendering/hwrenderer/*.h
 	rendering/hwrenderer/scene/*.h
-	*.h
 )
 
 set ( SWRENDER_SOURCES
@@ -780,6 +781,15 @@ if (HAVE_GLES2)
 	)
 
 	list (APPEND FASTMATH_SOURCES ${GLES_SOURCES})
+endif()
+
+if (HAVE_RT)
+	set(RT_SOURCES
+		common/rendering/rt/rt_main.cpp
+		common/rendering/rt/rt_cutscene.cpp
+	)
+
+	list (APPEND FASTMATH_SOURCES ${RT_SOURCES})
 endif()
 
 if (HAVE_VULKAN)
@@ -1239,6 +1249,19 @@ list( REMOVE_ITEM GAME_NONPCH_SOURCES ${PCH_SOURCES} )
 
 add_executable( zdoom WIN32 MACOSX_BUNDLE ${GAME_SOURCES} )
 
+if( HAVE_RT )
+	if ( DEFINED ENV{RTGL1_SDK_PATH} )
+		include_directories( $ENV{RTGL1_SDK_PATH}/Include )
+		# VS hot reload
+		if ( MSVC AND WIN32 AND NOT MSVC_VERSION VERSION_LESS 142 )
+			target_link_options( zdoom PRIVATE $<$<CONFIG:Debug>:/INCREMENTAL> )
+			target_compile_options( zdoom PRIVATE $<$<CONFIG:Debug>:/ZI> )
+		endif()
+	else()
+		message(FATAL_ERROR "Environment variable RTGL1_SDK_PATH is not set. It should point to RTGL1 library directory")
+	endif()
+endif()
+
 target_precompile_headers( zdoom PRIVATE g_pch.h )
 
 set_source_files_properties( ${FASTMATH_SOURCES} PROPERTIES COMPILE_FLAGS ${ZD_FASTMATH_FLAG} )
@@ -1499,6 +1522,7 @@ source_group("Common\\Rendering\\Hardware Renderer\\Data" REGULAR_EXPRESSION "^$
 source_group("Common\\Rendering\\Hardware Renderer\\Postprocessing" REGULAR_EXPRESSION "^${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/hwrenderer/postprocessing/.+")
 source_group("Common\\Rendering\\OpenGL Loader" REGULAR_EXPRESSION "^${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/gl_load/.+")
 source_group("Common\\Rendering\\OpenGL Backend" REGULAR_EXPRESSION "^${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/gl/.+")
+source_group("Common\\Rendering\\RT" REGULAR_EXPRESSION "^${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/rt/.+")
 source_group("Common\\Rendering\\GLES Backend" REGULAR_EXPRESSION "^${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/gles/.+")
 source_group("Common\\Rendering\\Vulkan Renderer\\System" REGULAR_EXPRESSION "^${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/vulkan/system/.+")
 source_group("Common\\Rendering\\Vulkan Renderer\\Renderer" REGULAR_EXPRESSION "^${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/vulkan/renderer/.+")

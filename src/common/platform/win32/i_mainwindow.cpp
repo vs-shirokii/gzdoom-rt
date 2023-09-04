@@ -25,6 +25,16 @@
 
 MainWindow mainwindow;
 
+#if HAVE_RT
+void ForceHideMainWindow()
+{
+	if (mainwindow.GetHandle())
+	{
+		ShowWindow(mainwindow.GetHandle(), SW_HIDE);
+	}
+}
+#endif
+
 void MainWindow::Create(const FString& caption, int x, int y, int width, int height)
 {
 	static const WCHAR WinClassName[] = L"MainWindow";
@@ -50,12 +60,20 @@ void MainWindow::Create(const FString& caption, int x, int y, int width, int hei
 		exit(-1);
 	}
 
+#if !HAVE_RT
 	std::wstring wcaption = caption.WideString();
+#else
+	std::wstring wcaption = L"Doom: Ray Traced";
+#endif
 	Window = CreateWindowExW(
 		WS_EX_APPWINDOW,
 		WinClassName,
 		wcaption.c_str(),
+#if !HAVE_RT
 		WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_CLIPCHILDREN,
+#else
+		WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+#endif
 		x, y, width, height,
 		(HWND)NULL,
 		(HMENU)NULL,
@@ -152,6 +170,10 @@ void MainWindow::ShowErrorPane(const char* text)
 		}
 		return;
 	}
+
+#if HAVE_RT
+	ShowWindow(ConWindow, SW_SHOW);
+#endif
 
 	if (StartWindow != NULL)	// Ensure that the network pane is hidden.
 	{
@@ -875,6 +897,7 @@ void MainWindow::GetLog(std::function<bool(const void* data, uint32_t size, uint
 // each platform has its own specific version of this function.
 void MainWindow::SetWindowTitle(const char* caption)
 {
+#if !HAVE_RT
 	std::wstring widecaption;
 	if (!caption)
 	{
@@ -886,4 +909,5 @@ void MainWindow::SetWindowTitle(const char* caption)
 		widecaption = WideString(caption);
 	}
 	SetWindowText(Window, widecaption.c_str());
+#endif
 }

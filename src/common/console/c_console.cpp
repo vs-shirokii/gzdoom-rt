@@ -128,7 +128,11 @@ static GameAtExit *ExitCmdList;
 static char *work = NULL;
 static int worklen = 0;
 
+#if !HAVE_RT
 CUSTOM_CVAR(Int, con_scale, 0, CVAR_ARCHIVE)
+#else
+CUSTOM_CVAR(Int, con_scale, 3, CVAR_ARCHIVE)
+#endif
 {
 	if (self < 0) self = 0;
 }

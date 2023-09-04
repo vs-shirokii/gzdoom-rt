@@ -778,6 +778,208 @@ bool FLevelLocals::EV_BuildStairs (int tag, DFloor::EStair type, line_t *line, d
 	return rtn;
 }
 
+#if HAVE_RT
+extern bool stairs_isstairs( int special );
+extern int  stairs_usespecials( int special );
+
+// Copies the FLevelLocals::EV_BuildStairs function 
+auto RT_GetStairsSectors( int tag, line_t* line ) -> std::vector< int >
+{
+	if( tag == 0 || !line || !primaryLevel )
+	{
+		return {};
+	}
+	if( !stairs_isstairs( line->special ) )
+	{
+		return {};
+	}
+	const int usespecials = stairs_usespecials( line->special );
+	const int igntxt      = 0;
+
+	std::vector< int > result_sectornums{};
+
+	FLevelLocals* lvl = primaryLevel;
+
+	int        secnum = -1;
+	int        newsecnum = -1;
+	FTextureID texture = {};
+	int        ok = 0;
+
+	const sector_t* sec;
+	const sector_t* tsec = NULL;
+	
+	auto itr = lvl->GetSectorTagIterator( tag, line );
+	bool compatible = tag != 0 && (lvl->i_compatflags & COMPATF_STAIRINDEX);
+	while ((secnum = itr.NextCompat(compatible, secnum)) >= 0)
+	{
+		sec = &lvl->sectors[ secnum ];
+
+		result_sectornums.push_back( sec->Index() );
+
+		#if 0
+		if (sec->PlaneMoving(sector_t::floor) || sec->stairlock)
+		{
+			continue;
+		}
+
+		// new floor thinker
+		rtn = true;
+		floor = CreateThinker<DFloor> (sec);
+		floor->m_Direction = (type == DFloor::buildUp) ? 1 : -1;
+		stairstep = stairsize * floor->m_Direction;
+		floor->m_Type = DFloor::buildStair;	//jff 3/31/98 do not leave uninited
+		floor->m_ResetCount = reset;	// [RH] Tics until reset (0 if never)
+		floor->m_OrgDist = sec->floorplane.fD();	// [RH] Height to reset to
+		// [RH] Set up delay values
+		floor->m_Delay = delay;
+		floor->m_PauseTime = 0;
+		floor->m_StepTime = floor->m_PerStepTime = persteptime;
+		floor->m_Instant = false;
+
+		floor->m_Crush = (usespecials & DFloor::stairCrush) ? 10 : -1; //jff 2/27/98 fix uninitialized crush field
+		floor->m_Hexencrush = true;
+
+		floor->m_Speed = speed;
+		height = sec->CenterFloor() + stairstep;
+		floor->m_FloorDestDist = sec->floorplane.PointToDist (sec->centerspot, height);
+		#endif
+
+		texture = sec->GetTexture(sector_t::floor);
+		#if 0
+		osecnum = secnum;				//jff 3/4/98 preserve loop index
+
+		// Find next sector to raise
+		// 1. Find 2-sided line with same sector side[0] (lowest numbered)
+		// 2. Other side is the next sector to raise
+		// 3. Unless already moving, or different texture, then stop building
+		validcount++;
+		sec->validcount = validcount;
+		#endif
+		do
+		{
+			ok = 0;
+
+			if (usespecials & DFloor::stairUseSpecials)
+			{
+				// [RH] Find the next sector by scanning for Stairs_Special?
+				tsec = P_NextSpecialSectorVC(const_cast<sector_t*>(sec),
+						sec->special == Stairs_Special1 ?
+							Stairs_Special2 : Stairs_Special1);
+
+				if ( (ok = (tsec != nullptr)) )
+				{
+					#if 0
+					tsec->validcount = validcount;
+					height += stairstep;
+
+					// if sector's floor already moving, look for another
+					//jff 2/26/98 special lockout condition for retriggering
+					if (tsec->PlaneMoving(sector_t::floor) || tsec->stairlock)
+					{
+						prev = sec;
+						sec = tsec;
+						continue;
+					}
+					#endif
+					newsecnum = tsec->Index();
+				}
+			}
+			else
+			{
+				for (const auto* line2 : sec->Lines)
+				{
+					if ( !(line2->flags & ML_TWOSIDED) )
+						continue;
+
+					tsec = line2->frontsector;
+					newsecnum = tsec->sectornum;
+
+					if (secnum != newsecnum)
+						continue;
+
+					tsec = line2->backsector;
+					if (!tsec) continue;	//jff 5/7/98 if no backside, continue
+					newsecnum = tsec->sectornum;
+
+					if (!igntxt && tsec->GetTexture(sector_t::floor) != texture)
+						continue;
+
+					#if 0
+					// Doom bug: Height was changed before discarding the sector as part of the stairs.
+					// Needs to be compatibility optioned because some maps (Eternall MAP25) depend on it.
+					if (i_compatflags & COMPATF_STAIRINDEX) height += stairstep;
+
+					// if sector's floor already moving, look for another
+					//jff 2/26/98 special lockout condition for retriggering
+					if (tsec->PlaneMoving(sector_t::floor) || tsec->stairlock)
+						continue;
+
+					if (!(i_compatflags & COMPATF_STAIRINDEX)) height += stairstep;
+					#endif
+
+					ok = true;
+					break;
+				}
+			}
+
+			if (ok)
+			{
+				#if 0
+				// jff 2/26/98
+				// link the stair chain in both directions
+				// lock the stair sector until building complete
+				sec->nextsec = newsecnum; // link step to next
+				tsec->prevsec = secnum;   // link next back
+				tsec->nextsec = -1;       // set next forward link as end
+				tsec->stairlock = -2;     // lock the step
+
+				prev = sec;
+				#endif
+				sec = tsec;
+				secnum = newsecnum;
+
+				result_sectornums.push_back( sec->Index() );
+
+				#if 0
+				// create and initialize a thinker for the next step
+				floor = CreateThinker<DFloor> (sec);
+				floor->StartFloorSound ();
+				floor->m_Direction = (type == DFloor::buildUp) ? 1 : -1;
+				floor->m_FloorDestDist = sec->floorplane.PointToDist (DVector2(0, 0), height);
+				// [RH] Set up delay values
+				floor->m_Delay = delay;
+				floor->m_PauseTime = 0;
+				floor->m_StepTime = floor->m_PerStepTime = persteptime;
+
+				if (usespecials & DFloor::stairSync)
+				{
+					// [RH]
+					double rise = height - sec->CenterFloor();
+					floor->m_Speed = speed * rise / stairstep;
+				}
+				else
+				{
+					floor->m_Speed = speed;
+				}
+				floor->m_Type = DFloor::buildStair;	//jff 3/31/98 do not leave uninited
+				//jff 2/27/98 fix uninitialized crush field
+				floor->m_Crush = (!(usespecials & DFloor::stairUseSpecials) && speed == 4) ? 10 : -1; //jff 2/27/98 fix uninitialized crush field
+				floor->m_Hexencrush = false;
+				floor->m_Instant = false;
+				floor->m_ResetCount = reset;	// [RH] Tics until reset (0 if never)
+				floor->m_OrgDist = sec->floorplane.fD();	// [RH] Height to reset to
+				#endif
+			}
+		} while (ok);
+		#if 0
+		sectors[osecnum].prevsec = -1;
+		#endif
+	}
+
+	return result_sectornums;
+}
+#endif // HAVE_RT
+
 //==========================================================================
 //
 // [RH] Added pillarspeed and slimespeed parameters

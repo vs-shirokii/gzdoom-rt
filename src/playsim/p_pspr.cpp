@@ -1461,6 +1461,9 @@ void DPSprite::OnDestroy()
 
 float DPSprite::GetYAdjust(bool fullscreen)
 {
+#if HAVE_RT // never non-full viewport
+	fullscreen = true;
+#endif
 	auto weapon = GetCaller();
 	if (weapon != nullptr && weapon->IsKindOf(NAME_Weapon))
 	{
