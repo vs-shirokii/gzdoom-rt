@@ -118,6 +118,7 @@ void HWSprite::DrawSprite(HWDrawInfo *di, FRenderState &state, bool translucent)
 		// from HWDrawInfo::PreparePlayerSprites
 		!(	(players[consoleplayer].cheats & CF_CHASECAM) ||
 			(r_deathcamera && di->Viewpoint.camera && di->Viewpoint.camera->health <= 0) );
+	const bool isnonlocalplayer = !isfirstpersonviewer && actor->player;
 
 	auto rttype = rtstate.push_type(
 		isfirstpersonviewer ? RtPrim::FirstPersonViewer :
@@ -324,7 +325,7 @@ void HWSprite::DrawSprite(HWDrawInfo *di, FRenderState &state, bool translucent)
 				? actor->InterpolatedAngles(di->Viewpoint.TicFrac)
 				: actor->Angles;
 			auto rtrot = rtstate.push_apply_spriterotation(
-				isfirstpersonviewer ? 0 : float(rtangles.Pitch.Radians()),
+                isfirstpersonviewer || isnonlocalplayer ? 0 : float( rtangles.Pitch.Radians() ),
 				float(rtangles.Yaw.Radians()));
 #endif
 
