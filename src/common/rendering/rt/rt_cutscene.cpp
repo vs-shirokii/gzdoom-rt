@@ -76,6 +76,7 @@ extern bool g_noinput_onstart;
 
 
 extern const char* g_rt_cutscenename;
+bool               g_rt_cutscene_pause{ false };
 extern bool        g_rt_showfirststartscene;
 bool               g_rt_showfirststartscene_untiemouse{ false };
 
@@ -87,6 +88,10 @@ bool RT_ForceCaptureMouse()
     // capture mouse in cutscenes
     if( g_rt_cutscenename && g_rt_cutscenename[ 0 ] != '\0' )
     {
+        if( g_rt_cutscene_pause )
+        {
+            return false;
+        }
         return true;
     }
     if( g_rt_showfirststartscene )
@@ -98,6 +103,113 @@ bool RT_ForceCaptureMouse()
     }
     return false;
 }
+
+
+#define RT_HOOK_INTRO 1
+
+namespace
+{
+namespace intro
+{
+    constexpr auto SkipDuration = 1.0f;
+
+    struct state_t
+    {
+        float  m_skipProgress{ 0 };
+        double m_prevtime{ 0 };
+        int    m_skipButtonPressed{ 0 };
+    };
+
+    void start( state_t& state )
+    {
+        g_rt_cutscenename = "cs_intro";
+        cvar::rt_classic  = 0; // cutscenes work on replacements, no classic mode available...
+    }
+
+    void destroy( state_t& state )
+    {
+        g_rt_cutscenename = nullptr;
+    }
+
+    bool input( state_t& state, const FInputEvent& ev )
+    {
+        if( ev.Type == EV_KeyDown )
+        {
+            state.m_skipButtonPressed++;
+            return true;
+        }
+        if( ev.Type == EV_KeyUp )
+        {
+            state.m_skipButtonPressed = std::max( 0, state.m_skipButtonPressed - 1 );
+            return true;
+        }
+        return false;
+    }
+
+    bool tick( state_t& state )
+    {
+        float deltatime;
+        {
+            double curtime   = RT_GetCurrentTime();
+            deltatime        = float( curtime - state.m_prevtime );
+            state.m_prevtime = curtime;
+        }
+
+        float dt             = state.m_skipButtonPressed ? deltatime : -deltatime;
+        state.m_skipProgress = std::max( state.m_skipProgress + dt, 0.0f );
+
+        if( state.m_skipProgress > SkipDuration )
+        {
+            g_rt_cutscenename = nullptr;
+            return true;
+        }
+
+        return false;
+    }
+
+    void draw( state_t& state )
+    {
+        // TODO: draw skip cutscene progress
+
+        const char* text = "Hold any key to skip";
+        auto*       font = SmallFont;
+
+        int text_width  = font->StringWidth( text );
+        int text_height = font->GetHeight();
+        int safe        = 4;
+        int safe_upper  = 6;
+
+        if( state.m_skipProgress > 0 )
+        {
+            float w = 0.5f * ( 1 - state.m_skipProgress );
+            float h = float( safe + text_height + safe_upper ) / float( 200 );
+            ClearRect( twod,
+                       twod->GetWidth() * w,
+                       twod->GetHeight() * ( 1 - h ),
+                       twod->GetWidth() * ( 1 - w ),
+                       twod->GetHeight(),
+                       0,
+                       MAKEARGB( 255, 255, 255, 255 ) );
+        }
+
+        DrawText( twod,
+                  font,
+                  CR_WHITE,
+                  320 / 2 - text_width / 2,
+                  200 - text_height - safe,
+                  text,
+                  DTA_320x200,
+                  true,
+                  DTA_KeepRatio,
+                  false,
+                  TAG_DONE );
+    }
+} // intro
+} // anonymous
+
+
+// -------------- //
+
 
 static double g_rt_mouse_x = 0;
 static double g_rt_mouse_y = 0;
@@ -158,6 +270,10 @@ namespace firststart
         double fadeinStartTime{ 0 };
 
         std::optional< double > page1StartTime{};
+
+#if RT_HOOK_INTRO
+        std::optional< intro::state_t > introstate{};
+#endif
     };
 
     void start( state_t& state )
@@ -186,6 +302,13 @@ namespace firststart
 
     bool input( state_t& state, const FInputEvent& ev )
     {
+#if RT_HOOK_INTRO
+        if( state.introstate )
+        {
+            return intro::input( *state.introstate, ev );
+        }
+#endif
+
         if( state.page == 0 )
         {
             if( ev.Type == EV_KeyDown || ev.Type == EV_KeyUp )
@@ -465,6 +588,28 @@ namespace firststart
     {
         if( state.finished )
         {
+#if RT_HOOK_INTRO
+            // after settings, get to the intro
+            if( cvar::rt_firststart )
+            {
+                if( !state.introstate )
+                {
+                    state.introstate = intro::state_t{};
+                    intro::start( *state.introstate );
+                }
+
+                if( !intro::tick( *state.introstate ) )
+                {
+                    return false;
+                }
+                else
+                {
+                    intro::destroy( *state.introstate );
+                }
+            }
+            g_rt_showfirststartscene = false;
+#endif
+
             g_rt_cutscenename = nullptr;
 
             // dont show this screen on the next starts
@@ -584,6 +729,14 @@ namespace firststart
 
     void draw( state_t& state )
     {
+#if RT_HOOK_INTRO
+        if( state.introstate )
+        {
+            intro::draw( *state.introstate );
+            return;
+        }
+#endif
+
         update_camera( state );
 
         constexpr int canvas_height = 480;
@@ -928,7 +1081,7 @@ namespace firststart
         }
         else
         {
-            y = canvas_height - yoffset * 2;
+            y = int( yoffset * 3.9f );
 
             // draw text after fading completed
             if( state.fadeinWas && curTime > state.fadeinStartTime + 3.0 )
@@ -972,122 +1125,6 @@ namespace firststart
 }
 
 MAKE_VM_WRAPPER( DCutsceneFirstStart_Controller_RT, firststart::state_t )
-
-
-// -------------- //
-
-
-
-namespace
-{
-namespace intro
-{
-    constexpr auto SkipDuration = 1.0f;
-
-    struct state_t
-    {
-        float  m_skipProgress{ 0 };
-        double m_prevtime{ 0 };
-        int    m_skipButtonPressed{ 0 };
-    };
-
-    void start( state_t& state )
-    {
-        g_rt_cutscenename = "cs_intro";
-        cvar::rt_classic  = 0; // cutscenes work on replacements, no classic mode available...
-    }
-
-    void destroy( state_t& state )
-    {
-        g_rt_cutscenename = nullptr;
-    }
-
-    bool input( state_t& state, const FInputEvent& ev )
-    {
-        if( ev.Type == EV_KeyDown )
-        {
-            state.m_skipButtonPressed++;
-            return true;
-        }
-        if( ev.Type == EV_KeyUp )
-        {
-            state.m_skipButtonPressed = std::max( 0, state.m_skipButtonPressed - 1 );
-            return true;
-        }
-        return false;
-    }
-
-    bool tick( state_t& state )
-    {
-        float deltatime;
-        {
-            double curtime   = RT_GetCurrentTime();
-            deltatime        = float( curtime - state.m_prevtime );
-            state.m_prevtime = curtime;
-        }
-
-        float dt             = state.m_skipButtonPressed ? deltatime : -deltatime;
-        state.m_skipProgress = std::max( state.m_skipProgress + dt, 0.0f );
-
-        if( state.m_skipProgress > SkipDuration )
-        {
-
-            /*
-
-            // TODO: save that firststart is done here (in intro cutscene), not in firststart cutscene
-            RT_FirstStartDone();
-            g_noinput_onstart = false;
-            
-            */
-
-            g_rt_cutscenename = nullptr;
-            return true;
-        }
-
-        return false;
-    }
-
-    void draw( state_t& state )
-    {
-        // TODO: draw skip cutscene progress
-
-        const char* text = "Hold any key to skip";
-        auto*       font = SmallFont;
-
-        int text_width  = font->StringWidth( text );
-        int text_height = font->GetHeight();
-        int safe        = 4;
-        int safe_upper  = 6;
-
-        if( state.m_skipProgress > 0 )
-        {
-            float w = 0.5f * ( 1 - state.m_skipProgress );
-            float h = float( safe + text_height + safe_upper ) / float( 200 );
-            ClearRect( twod,
-                       twod->GetWidth() * w,
-                       twod->GetHeight() * ( 1 - h ),
-                       twod->GetWidth() * ( 1 - w ),
-                       twod->GetHeight(),
-                       0,
-                       MAKEARGB( 255, 255, 255, 255 ) );
-        }
-
-        DrawText( twod,
-                  font,
-                  CR_WHITE,
-                  320 / 2 - text_width / 2,
-                  200 - text_height - safe,
-                  text,
-                  DTA_320x200,
-                  true,
-                  DTA_KeepRatio,
-                  false,
-                  TAG_DONE );
-    }
-}
-}
-
-MAKE_VM_WRAPPER( DCutsceneIntro_Controller_RT, intro::state_t )
 
 
 // -------------- //
