@@ -265,6 +265,8 @@ int         g_rt_skipinitframes      = -10; // to prevent flashing when starting
 bool        g_rt_forcenofocuschange  = true;
 int         rt_cullmode              = 2; // 0 -- balanced,  1 -- original gzdoom,  2 -- none
 
+extern float RT_CutsceneTime();
+
 extern void RT_CloseLauncherWindow();
 
 auto RT_MakeUpRightForwardVectors( const DRotator& rotation ) -> std::tuple< RgFloat3D, RgFloat3D, RgFloat3D >;
@@ -2942,6 +2944,7 @@ void RTFrameBuffer::RT_BeginFrame()
         .lightstyleValuesCount  = uint32_t( g_sectorlightlevels.size() ),
         .pLightstyleValues8     = g_sectorlightlevels.data(),
         .pResultStaticSceneStatus = &staticscene_status,
+        .staticSceneAnimationTime = g_rt_cutscenename ? RT_CutsceneTime() : 0,
     };
     g_resetfluid = false;
 

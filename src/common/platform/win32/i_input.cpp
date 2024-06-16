@@ -323,6 +323,10 @@ bool CallHook(FInputDevice *device, HWND hWnd, UINT message, WPARAM wParam, LPAR
 	return device->WndProcHook(hWnd, message, wParam, lParam, result);
 }
 
+#if HAVE_RT
+extern void RT_OnHwndActivate( bool active );
+#endif
+
 LRESULT CALLBACK WndProc (HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	LRESULT result;
@@ -504,6 +508,9 @@ LRESULT CALLBACK WndProc (HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			SetPriorityClass (GetCurrentProcess (), IDLE_PRIORITY_CLASS);
 		}
 		S_SetSoundPaused (wParam);
+#if HAVE_RT
+		RT_OnHwndActivate( wParam );
+#endif
 		break;
 
 	case WM_ERASEBKGND:

@@ -76,9 +76,11 @@ extern bool g_noinput_onstart;
 
 
 extern const char* g_rt_cutscenename;
-bool               g_rt_cutscene_pause{ false };
-extern bool        g_rt_showfirststartscene;
-bool               g_rt_showfirststartscene_untiemouse{ false };
+static auto        g_cstime_start  = std::optional< double >{};
+static auto        g_cstime_paused = std::optional< double >{};
+
+extern bool g_rt_showfirststartscene;
+bool        g_rt_showfirststartscene_untiemouse{ false };
 
 extern void RT_DrawSettingDescription( std::string_view rtkey, bool forFirstStartMenu );
 extern void RT_ForceCamera( const FVector3 position, const DRotator& rotation, float fovYDegrees );
@@ -88,7 +90,7 @@ bool RT_ForceCaptureMouse()
     // capture mouse in cutscenes
     if( g_rt_cutscenename && g_rt_cutscenename[ 0 ] != '\0' )
     {
-        if( g_rt_cutscene_pause )
+        if( g_cstime_paused )
         {
             return false;
         }
@@ -106,6 +108,7 @@ bool RT_ForceCaptureMouse()
 
 
 #define RT_HOOK_INTRO 1
+#define RT_INTRO_SKIPPABLE 0
 
 namespace
 {
@@ -115,14 +118,59 @@ namespace intro
 
     struct state_t
     {
+#if RT_INTRO_SKIPPABLE
         float  m_skipProgress{ 0 };
         double m_prevtime{ 0 };
         int    m_skipButtonPressed{ 0 };
+#endif
     };
+
+    void cstime_pause()
+    {
+        assert( !g_cstime_paused );
+        g_cstime_paused = RT_GetCurrentTime();
+    }
+    void cstime_continue()
+    {
+        assert( g_cstime_paused );
+
+        if( g_cstime_start && g_cstime_paused )
+        {
+            double paused_duration = RT_GetCurrentTime() - *g_cstime_paused;
+            if( paused_duration > 0 )
+            {
+                g_cstime_start = *g_cstime_start + paused_duration;
+            }
+        }
+        g_cstime_paused = std::nullopt;
+    }
+    double cstime_now()
+    {
+        const double realnow = RT_GetCurrentTime();
+
+        if( !g_cstime_start )
+        {
+            assert( 0 );
+            g_cstime_start = realnow;
+        }
+
+        double sec = realnow - *g_cstime_start;
+
+        // if paused, override with the time to the pause time point
+        if( g_cstime_paused )
+        {
+            sec = *g_cstime_paused - *g_cstime_start;
+        }
+
+        assert( sec >= 0 );
+        return std::max( 0.0, sec );
+    }
 
     void start( state_t& state )
     {
         g_rt_cutscenename = "cs_intro";
+        g_cstime_start    = RT_GetCurrentTime();
+        g_cstime_paused   = {};
         cvar::rt_classic  = 0; // cutscenes work on replacements, no classic mode available...
     }
 
@@ -133,21 +181,72 @@ namespace intro
 
     bool input( state_t& state, const FInputEvent& ev )
     {
-        if( ev.Type == EV_KeyDown )
+        // pause
+        if( !g_cstime_paused )
         {
-            state.m_skipButtonPressed++;
-            return true;
+            if( ev.KeyScan == KEY_ESCAPE || ev.KeyScan == KEY_BACKSPACE ||
+                // ev.KeyScan == KEY_LCTRL || ev.KeyScan == KEY_RCTRL ||
+                // ev.KeyScan == KEY_LALT || ev.KeyScan == KEY_RALT ||
+                // ev.KeyScan == KEY_RSHIFT || ev.KeyScan == KEY_LSHIFT ||
+                // ev.KeyScan == KEY_TAB ||
+                ev.KeyScan == KEY_PAD_B )
+            {
+                if( ev.Type == EV_KeyDown )
+                {
+                    cstime_pause();
+                    return true;
+                }
+            }
+
+            if( ev.KeyScan == KEY_SPACE )
+            {
+                if( ev.Type == EV_KeyUp )
+                {
+                    cstime_pause();
+                    return true;
+                }
+            }
         }
-        if( ev.Type == EV_KeyUp )
+
+        // unpause
+        if( g_cstime_paused )
         {
-            state.m_skipButtonPressed = std::max( 0, state.m_skipButtonPressed - 1 );
-            return true;
+            if( ev.KeyScan == KEY_SPACE || ev.KeyScan == KEY_ENTER || ev.KeyScan == KEY_PAD_A )
+            {
+                if( ev.Type == EV_KeyUp )
+                {
+                    cstime_continue();
+                    return true;
+                }
+            }
         }
+
+#if RT_INTRO_SKIPPABLE
+        // hold to skip
+        if( !g_cstime_paused )
+        {
+            if( ev.KeyScan == KEY_ENTER || ev.KeyScan == KEY_PAD_A )
+            {
+                if( ev.Type == EV_KeyDown )
+                {
+                    state.m_skipButtonPressed++;
+                    return true;
+                }
+                if( ev.Type == EV_KeyUp )
+                {
+                    state.m_skipButtonPressed = std::max( 0, state.m_skipButtonPressed - 1 );
+                    return true;
+                }
+            }
+        }
+#endif
+
         return false;
     }
 
     bool tick( state_t& state )
     {
+#if RT_INTRO_SKIPPABLE
         float deltatime;
         {
             double curtime   = RT_GetCurrentTime();
@@ -160,25 +259,38 @@ namespace intro
 
         if( state.m_skipProgress > SkipDuration )
         {
+    // DEVTOOLS: RESTART CUTSCENE
+    #if 1
+            g_cstime_start  = RT_GetCurrentTime();
+            g_cstime_paused = g_cstime_paused ? g_cstime_start : std::nullopt;
+            return false;
+    #else
             g_rt_cutscenename = nullptr;
             return true;
+    #endif
         }
+#endif
 
         return false;
     }
 
+    int blink_timer( double base, double intervalOn = 0.6, double intervalOff = 0.2 )
+    {
+        double curtime = RT_GetCurrentTime() - base;
+
+        double i = std::fmod( curtime, intervalOn + intervalOff );
+        return i <= intervalOn ? 1 : 0;
+    }
+
     void draw( state_t& state )
     {
-        // TODO: draw skip cutscene progress
-
-        const char* text = "Hold any key to skip";
-        auto*       font = SmallFont;
-
-        int text_width  = font->StringWidth( text );
+        auto* font        = SmallFont;
         int text_height = font->GetHeight();
         int safe        = 4;
         int safe_upper  = 6;
 
+#if RT_INTRO_SKIPPABLE
+        // text = "Hold ENTER to skip";
         if( state.m_skipProgress > 0 )
         {
             float w = 0.5f * ( 1 - state.m_skipProgress );
@@ -191,22 +303,46 @@ namespace intro
                        0,
                        MAKEARGB( 255, 255, 255, 255 ) );
         }
+#endif
 
-        DrawText( twod,
-                  font,
-                  CR_WHITE,
-                  320 / 2 - text_width / 2,
-                  200 - text_height - safe,
-                  text,
-                  DTA_320x200,
-                  true,
-                  DTA_KeepRatio,
-                  false,
-                  TAG_DONE );
+        const char* text = g_cstime_paused && blink_timer( *g_cstime_paused, 0.9, 0.4 )
+                               ? "Press SPACE to continue"
+                               : nullptr;
+
+        if( text )
+        {
+            int text_width = font->StringWidth( text );
+            DrawText( twod,
+                      font,
+                      CR_WHITE,
+                      320 / 2 - text_width / 2,
+                      200 - text_height - safe,
+                      text,
+                      DTA_320x200,
+                      true,
+                      DTA_KeepRatio,
+                      false,
+                      TAG_DONE );
+        }
     }
 } // intro
 } // anonymous
 
+float RT_CutsceneTime()
+{
+    return float( intro::cstime_now() );
+}
+
+void RT_OnHwndActivate( bool active )
+{
+    if( !active )
+    {
+        if( g_rt_cutscenename && !g_cstime_paused )
+        {
+            intro::cstime_pause();
+        }
+    }
+}
 
 // -------------- //
 
