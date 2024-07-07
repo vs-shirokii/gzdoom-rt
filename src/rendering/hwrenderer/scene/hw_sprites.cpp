@@ -118,7 +118,7 @@ void HWSprite::DrawSprite(HWDrawInfo *di, FRenderState &state, bool translucent)
 		// from HWDrawInfo::PreparePlayerSprites
 		!(	(players[consoleplayer].cheats & CF_CHASECAM) ||
 			(r_deathcamera && di->Viewpoint.camera && di->Viewpoint.camera->health <= 0) );
-	const bool isnonlocalplayer = !isfirstpersonviewer && actor->player;
+	const bool isnonlocalplayer = !isfirstpersonviewer && actor && actor->player;
 
 	auto rttype = rtstate.push_type(
 		isfirstpersonviewer ? RtPrim::FirstPersonViewer :
