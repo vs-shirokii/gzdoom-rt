@@ -724,6 +724,8 @@ namespace firststart
     {
         if( state.finished )
         {
+            g_noinput_onstart = false;
+
 #if RT_HOOK_INTRO
             // after settings, get to the intro
             if( cvar::rt_firststart )
@@ -750,7 +752,6 @@ namespace firststart
 
             // dont show this screen on the next starts
             RT_FirstStartDone();
-            g_noinput_onstart = false;
             // end cutscene
             return true;
         }
