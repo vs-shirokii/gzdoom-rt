@@ -88,6 +88,8 @@ bool        g_rt_showfirststartscene_untiemouse{ false };
 extern void RT_DrawSettingDescription( std::string_view rtkey, bool forFirstStartMenu );
 extern void RT_ForceCamera( const FVector3 position, const DRotator& rotation, float fovYDegrees );
 
+extern FSoundID T_FindSound( const char* name );
+
 bool RT_ForceCaptureMouse()
 {
     // capture mouse in cutscenes
@@ -119,6 +121,8 @@ namespace intro
 {
     constexpr auto SkipDuration = 1.0f;
 
+    FSoundChan* g_cutscene_music{};
+
     struct state_t
     {
 #if RT_INTRO_SKIPPABLE
@@ -126,12 +130,19 @@ namespace intro
         double m_prevtime{ 0 };
         int    m_skipButtonPressed{ 0 };
 #endif
+        int m_syncaudiohack{ 1 };
     };
+
+    double      cstime_now();
+    FSoundChan* start_cutscene_music( double starttime );
 
     void cstime_pause()
     {
         assert( !g_cstime_paused );
         g_cstime_paused = RT_GetCurrentTime();
+
+        soundEngine->StopChannel( g_cutscene_music );
+        g_cutscene_music = nullptr;
     }
     void cstime_continue()
     {
@@ -146,6 +157,9 @@ namespace intro
             }
         }
         g_cstime_paused = std::nullopt;
+
+        soundEngine->StopChannel( g_cutscene_music );
+        g_cutscene_music = start_cutscene_music( cstime_now() );
     }
     double cstime_now()
     {
@@ -169,17 +183,36 @@ namespace intro
         return std::max( 0.0, sec );
     }
 
+    FSoundChan* start_cutscene_music( double starttime )
+    {
+        FSoundID sound = T_FindSound( "sounds/cutscene/iconofsin.ogg" );
+        return soundEngine->StartSound( SOURCE_None, //
+                                        nullptr,
+                                        nullptr,
+                                        CHAN_AUTO,
+                                        CHANF_UI,
+                                        sound,
+                                        1.f,
+                                        ATTN_NONE,
+                                        nullptr,
+                                        0,
+                                        float( starttime ) );
+    }
+
     void start( state_t& state )
     {
         g_rt_cutscenename = "cs_intro";
         g_cstime_start    = RT_GetCurrentTime();
         g_cstime_paused   = {};
         cvar::rt_classic  = 0; // cutscenes work on replacements, no classic mode available...
+        g_cutscene_music  = start_cutscene_music( cstime_now() );
     }
 
     void destroy( state_t& state )
     {
         g_rt_cutscenename = nullptr;
+
+        soundEngine->StopChannel( g_cutscene_music );
     }
 
     bool input( state_t& state, const FInputEvent& ev )
@@ -214,7 +247,7 @@ namespace intro
         // unpause
         if( g_cstime_paused )
         {
-            if( ev.KeyScan == KEY_SPACE || ev.KeyScan == KEY_ENTER || ev.KeyScan == KEY_PAD_A )
+            if( ev.KeyScan == KEY_SPACE || ev.KeyScan == KEY_PAD_A )
             {
                 if( ev.Type == EV_KeyUp )
                 {
@@ -249,6 +282,13 @@ namespace intro
 
     bool tick( state_t& state )
     {
+        auto l_restart = []() {
+            g_cstime_start  = RT_GetCurrentTime();
+            g_cstime_paused = g_cstime_paused ? g_cstime_start : std::nullopt;
+            soundEngine->StopChannel( g_cutscene_music );
+            g_cutscene_music = start_cutscene_music( cstime_now() );
+        };
+
 #if RT_INTRO_SKIPPABLE
         float deltatime;
         {
@@ -258,19 +298,23 @@ namespace intro
         }
 
         float dt             = state.m_skipButtonPressed ? deltatime : -deltatime;
-        state.m_skipProgress = std::max( state.m_skipProgress + dt, 0.0f );
+        state.m_skipProgress = std::clamp( state.m_skipProgress + dt, 0.0f, 2 * SkipDuration );
 
         if( state.m_skipProgress > SkipDuration )
         {
-    // DEVTOOLS: RESTART CUTSCENE
-    #if 1
-            g_cstime_start  = RT_GetCurrentTime();
-            g_cstime_paused = g_cstime_paused ? g_cstime_start : std::nullopt;
-            return false;
-    #else
-            g_rt_cutscenename = nullptr;
-            return true;
-    #endif
+            state.m_skipProgress = 0;
+
+            constexpr bool justrestart = true;
+            if( justrestart )
+            {
+                l_restart();
+                return false;
+            }
+            else
+            {
+                g_rt_cutscenename = nullptr;
+                return true;
+            }
         }
 #endif
 
@@ -287,6 +331,16 @@ namespace intro
 
     void draw( state_t& state )
     {
+        if( state.m_syncaudiohack >= 0 )
+        {
+            if( state.m_syncaudiohack == 0 )
+            {
+                soundEngine->StopChannel( g_cutscene_music );
+                g_cutscene_music = start_cutscene_music( cstime_now() );
+            }
+            state.m_syncaudiohack--;
+        }
+
         auto* font        = SmallFont;
         int   text_height = font->GetHeight();
         int   safe        = 4;
