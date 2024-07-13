@@ -5,7 +5,7 @@ gameinfo
 {
 	titlepage = "TITLEPIC"
 	creditpage = "CREDIT"
-	titlemusic = "$MUSIC_DM2TTL"
+	titlemusic = ""
 	titletime = 11
 	advisorytime = 0
 	pagetime = 5
