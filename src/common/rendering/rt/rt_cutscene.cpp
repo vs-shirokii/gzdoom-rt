@@ -363,6 +363,14 @@ namespace
 {
 namespace firststart
 {
+    // clang-format on
+    enum page_t
+    {
+        PAGE_PRESSANY,
+        PAGE_PERF,
+        PAGE_COLOR,
+    };
+
     enum item_t
     {
         ITEM_PAGE0_PRESSANYKEY,
@@ -377,11 +385,10 @@ namespace firststart
         ITEM_PAGE2_ACCEPT,
     };
     // clang-format off
-    template< int Page > constexpr auto PageBeginEnd = std::pair< item_t, item_t >{};
-    template<>           constexpr auto PageBeginEnd< 0 > = std::pair{ ITEM_PAGE0_PRESSANYKEY, ITEM_PAGE0_PRESSANYKEY };
-    template<>           constexpr auto PageBeginEnd< 1 > = std::pair{ ITEM_MODE, ITEM_PAGE1_ACCEPT };
-    template<>           constexpr auto PageBeginEnd< 2 > = std::pair{ ITEM_HDR, ITEM_PAGE2_ACCEPT };
-    // clang-format on
+    template< page_t > constexpr auto PageBeginEnd = std::pair< item_t, item_t >{};
+    template<>         constexpr auto PageBeginEnd< PAGE_PRESSANY > = std::pair{ ITEM_PAGE0_PRESSANYKEY, ITEM_PAGE0_PRESSANYKEY };
+    template<>         constexpr auto PageBeginEnd< PAGE_PERF     > = std::pair{ ITEM_MODE, ITEM_PAGE1_ACCEPT };
+    template<>         constexpr auto PageBeginEnd< PAGE_COLOR    > = std::pair{ ITEM_HDR, ITEM_PAGE2_ACCEPT };
 
     // from gltf
     constexpr auto DefaultCameraPosition = FVector3{ 18.9429f, -0.193118f, 0.608346f };
@@ -389,7 +396,7 @@ namespace firststart
 
     struct state_t
     {
-        int    page{ 0 };
+        int    page{ PAGE_PRESSANY };
         item_t current{ ITEM_MODE };
         bool   finished{ false };
 
@@ -445,11 +452,11 @@ namespace firststart
         }
 #endif
 
-        if( state.page == 0 )
+        if( state.page == PAGE_PRESSANY )
         {
             if( ev.Type == EV_KeyDown || ev.Type == EV_KeyUp )
             {
-                state.page = 1;
+                state.page = PAGE_PERF;
                 state.page1StartTime = RT_GetCurrentTime();
                 return true;
             }
@@ -488,13 +495,11 @@ namespace firststart
         {
             if( ev.Type == EV_KeyDown )
             {
-                state.cameraActive     = true;
                 state.cameraActiveZoom = true;
                 return true;
             }
             if( ev.Type == EV_KeyUp )
             {
-                state.cameraActive     = false;
                 state.cameraActiveZoom = false;
                 return true;
             }
@@ -599,7 +604,7 @@ namespace firststart
                         return true;
                     }
 
-                    state.page    = 2;
+                    state.page    = PAGE_COLOR;
                     state.current = ITEM_PAGE2_ACCEPT;
                     return true;
                 }
@@ -614,15 +619,15 @@ namespace firststart
             {
                 switch( state.page )
                 {
-                    case 1:
+                    case PAGE_PERF:
                         state.current = item_t( std::clamp< int >( state.current + downup,
-                                                                   PageBeginEnd< 1 >.first,
-                                                                   PageBeginEnd< 1 >.second ) );
+                                                                   PageBeginEnd< PAGE_PERF >.first,
+                                                                   PageBeginEnd< PAGE_PERF >.second ) );
                         return true;
-                    case 2:
+                    case PAGE_COLOR:
                         state.current = item_t( std::clamp< int >( state.current + downup,
-                                                                   PageBeginEnd< 2 >.first,
-                                                                   PageBeginEnd< 2 >.second ) );
+                                                                   PageBeginEnd< PAGE_COLOR >.first,
+                                                                   PageBeginEnd< PAGE_COLOR >.second ) );
                         return true;
                     default: assert( 0 ); break;
                 }
@@ -773,7 +778,7 @@ namespace firststart
             DAngle::fromDeg( 0 ),
         };
 
-        if( state.cameraActive )
+        if( state.cameraActive || state.cameraActiveZoom )
         {
             deltas[ 0 ] = DAngle::fromDeg( -mousex * dt );
             deltas[ 1 ] = DAngle::fromDeg( -mousey * dt );
@@ -799,7 +804,13 @@ namespace firststart
 
     bool is_camera_out( const state_t& state )
     {
-        if( state.cameraActiveZoom || !state.cameraActive )
+        // don't make wider fov, if zooming
+        if( state.cameraActiveZoom )
+        {
+            return false;
+        }
+
+        if ( !state.cameraActive )
         {
             return false;
         }
@@ -1057,16 +1068,16 @@ namespace firststart
         auto pagetable = std::vector< std::tuple< item_t, const char*, const char* > >{};
         switch( state.page )
         {
-            case 0:
+            case PAGE_PRESSANY:
                 break;
-            case 1:
+            case PAGE_PERF:
                 pagetable.emplace_back( ITEM_MODE, "Mode", l_getmode() );
                 pagetable.emplace_back( ITEM_PRESET, "Preset", l_getpreset() );
                 pagetable.emplace_back( ITEM_FRAMEGEN, "Frame Generation", l_getframegen() );
                 pagetable.emplace_back( ITEM_VSYNC, "VSync", l_getvsync() );
                 pagetable.emplace_back( ITEM_PAGE1_ACCEPT, "Apply", nullptr );
                 break;
-            case 2:
+            case PAGE_COLOR:
                 pagetable.emplace_back( ITEM_HDR, "HDR", l_gethdr() );
                 pagetable.emplace_back( ITEM_PAGE2_ACCEPT, "Apply", nullptr );
                 break;
@@ -1165,7 +1176,7 @@ namespace firststart
                 false; // state.page1StartTime && curTime < state.page1StartTime.value() + 8.0;
 
             // latency (only on the page with perf.settings)
-            if( state.page == 1 && ok1 )
+            if( state.page == PAGE_PERF && ok1 )
             {
                 auto color =
                     ok1c && blink_timer( 0.5, 0.5 ) ? L_DRAWTEXT_SELECTED : L_DRAWTEXT_DEFAULT;
