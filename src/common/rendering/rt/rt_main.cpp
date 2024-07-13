@@ -147,7 +147,7 @@ namespace cvar
     RT_CVAR( rt_tnmp_crosstalk_b,       0.8f,   "how much to shift Blue, when Red or Green are intense; set one channel to 1.0, others to <= 1.0" )
     RT_CVAR( rt_tnmp_contrast,          0.1f,   "(only if rt_hdr is OFF) LDR contrast" )
     RT_CVAR( rt_hdr_contrast,           0.25f,  "(only if rt_hdr is ON) HDR contrast" )
-    RT_CVAR( rt_hdr_saturation,         0.25f,  "(only if rt_hdr is ON) HDR saturation: -1 desaturate, +1 over saturate" )
+    RT_CVAR( rt_hdr_saturation,         0.5f,   "(only if rt_hdr is ON) HDR saturation: -1 desaturate, +1 over saturate" )
     RT_CVAR( rt_hdr_brightness,         1.5f,   "(only if rt_hdr is ON) HDR brightess multiplier" )
 
     RT_CVAR( rt_sky,                    100.f,  "sky intensity")
@@ -2694,6 +2694,9 @@ static bool   g_melt_requested   = false;
 static double g_melt_endtime     = -1;
 bool          g_noinput_onstart  = true;
 
+bool   g_cpu_latency_get = false;
+double g_cpu_latency     = 0;
+
 static void RT_DrawTitle();
 static void RT_ClearTitles();
 static void RT_InjectTitleIntoDoomMap( const char* mapname );
@@ -2727,6 +2730,33 @@ bool RT_IsMeltActive()
 bool RT_IgnoreUserInput()
 {
     return RT_IsMeltActive() || g_noinput_onstart;
+}
+
+static double CalcCpuLatency()
+{
+    static double   g_lprevtime            = RT_GetCurrentTime();
+    static double   g_lprevlatencies[ 30 ] = {};
+    static uint32_t g_lprevi               = 0;
+
+    double lcurtime = RT_GetCurrentTime();
+
+    g_lprevlatencies[ g_lprevi ] = lcurtime - g_lprevtime;
+
+    g_lprevi    = ( g_lprevi + 1 ) % std::size( g_lprevlatencies );
+    g_lprevtime = lcurtime;
+
+    double sum = 0;
+    int    cnt = 0;
+    for( double t : g_lprevlatencies )
+    {
+        if( t > 0 )
+        {
+            sum += t;
+            cnt++;
+        }
+    }
+
+    return cnt > 0 ? sum / cnt : 0;
 }
 
 namespace
@@ -3298,6 +3328,11 @@ void RTFrameBuffer::RT_DrawFrame()
 
     RgResult r = rt.rgDrawFrame( &info );
     RG_CHECK( r );
+
+    if( g_cpu_latency_get )
+    {
+        g_cpu_latency = CalcCpuLatency();
+    }
 
     // reset for next frame
     {

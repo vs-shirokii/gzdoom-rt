@@ -9,6 +9,9 @@
 extern void RT_FirstStartDone();
 extern bool g_noinput_onstart;
 
+extern bool   g_cpu_latency_get;
+extern double g_cpu_latency;
+
 #pragma region VM Boilerplate
 #include "actor.h"
 #include "vm.h"
@@ -107,7 +110,7 @@ bool RT_ForceCaptureMouse()
 }
 
 
-#define RT_HOOK_INTRO 1
+#define RT_HOOK_INTRO      1
 #define RT_INTRO_SKIPPABLE 0
 
 namespace
@@ -285,9 +288,9 @@ namespace intro
     void draw( state_t& state )
     {
         auto* font        = SmallFont;
-        int text_height = font->GetHeight();
-        int safe        = 4;
-        int safe_upper  = 6;
+        int   text_height = font->GetHeight();
+        int   safe        = 4;
+        int   safe_upper  = 6;
 
 #if RT_INTRO_SKIPPABLE
         // text = "Hold ENTER to skip";
@@ -366,14 +369,16 @@ namespace firststart
     // clang-format on
     enum page_t
     {
-        PAGE_PRESSANY,
+        PAGE_FADE,
+        PAGE_TTR_ROTATE,
+        PAGE_TTR_ZOOM,
         PAGE_PERF,
         PAGE_COLOR,
     };
 
     enum item_t
     {
-        ITEM_PAGE0_PRESSANYKEY,
+        ITEM_NONE,
 
         ITEM_MODE,
         ITEM_PRESET,
@@ -385,10 +390,10 @@ namespace firststart
         ITEM_PAGE2_ACCEPT,
     };
     // clang-format off
-    template< page_t > constexpr auto PageBeginEnd = std::pair< item_t, item_t >{};
-    template<>         constexpr auto PageBeginEnd< PAGE_PRESSANY > = std::pair{ ITEM_PAGE0_PRESSANYKEY, ITEM_PAGE0_PRESSANYKEY };
-    template<>         constexpr auto PageBeginEnd< PAGE_PERF     > = std::pair{ ITEM_MODE, ITEM_PAGE1_ACCEPT };
-    template<>         constexpr auto PageBeginEnd< PAGE_COLOR    > = std::pair{ ITEM_HDR, ITEM_PAGE2_ACCEPT };
+    template< page_t > constexpr auto PageBeginEnd = std::pair< item_t, item_t >{ ITEM_NONE, ITEM_NONE };
+    template<>         constexpr auto PageBeginEnd< PAGE_PERF       > = std::pair{ ITEM_MODE, ITEM_PAGE1_ACCEPT };
+    template<>         constexpr auto PageBeginEnd< PAGE_COLOR      > = std::pair{ ITEM_HDR, ITEM_PAGE2_ACCEPT };
+	// clang-format on
 
     // from gltf
     constexpr auto DefaultCameraPosition = FVector3{ 18.9429f, -0.193118f, 0.608346f };
@@ -396,7 +401,7 @@ namespace firststart
 
     struct state_t
     {
-        int    page{ PAGE_PRESSANY };
+        int    page{ PAGE_FADE };
         item_t current{ ITEM_MODE };
         bool   finished{ false };
 
@@ -408,9 +413,11 @@ namespace firststart
         DRotator cameraRotation{ DefaultCameraRotation };
         float    cameraZoom{ 0.0f }; // -1: outside, 0: default, 1: full zoom
         bool     cameraOut{ false };
+        
+        std::optional< double > fadeinStartTime{ 0 };
 
-        bool   fadeinWas{ false };
-        double fadeinStartTime{ 0 };
+        std::optional< double > pageRotateDoneTime{};
+        std::optional< double > pageZoomDoneTime{};
 
         std::optional< double > page1StartTime{};
 
@@ -452,14 +459,54 @@ namespace firststart
         }
 #endif
 
-        if( state.page == PAGE_PRESSANY )
+        if( state.page == PAGE_FADE )
         {
-            if( ev.Type == EV_KeyDown || ev.Type == EV_KeyUp )
+            return false;
+        }
+
+        if( state.page == PAGE_TTR_ROTATE || state.page == PAGE_TTR_ZOOM )
+        {
+            if( ev.KeyScan == KEY_MOUSE1 )
             {
-                state.page = PAGE_PERF;
-                state.page1StartTime = RT_GetCurrentTime();
-                return true;
+                if( ev.Type == EV_KeyDown )
+                {
+                    state.cameraActive = true;
+                    return true;
+                }
+                if( ev.Type == EV_KeyUp )
+                {
+                    state.cameraActive = false;
+
+                    if( state.page == PAGE_TTR_ROTATE && !state.pageRotateDoneTime )
+                    {
+                        state.pageRotateDoneTime = RT_GetCurrentTime();
+                    }
+                    return true;
+                }
             }
+
+            if( state.page == PAGE_TTR_ZOOM )
+            {
+                if( ev.KeyScan == KEY_MOUSE2 )
+                {
+                    if( ev.Type == EV_KeyDown )
+                    {
+                        state.cameraActiveZoom = true;
+                        return true;
+                    }
+                    if( ev.Type == EV_KeyUp )
+                    {
+                        state.cameraActiveZoom = false;
+
+                        if( state.page == PAGE_TTR_ZOOM && !state.pageZoomDoneTime )
+                        {
+                            state.pageZoomDoneTime = RT_GetCurrentTime();
+                        }
+                        return true;
+                    }
+                }
+            }
+
             return false;
         }
 
@@ -730,6 +777,7 @@ namespace firststart
         if( state.finished )
         {
             g_noinput_onstart = false;
+            g_cpu_latency_get = false;
 
 #if RT_HOOK_INTRO
             // after settings, get to the intro
@@ -769,6 +817,30 @@ namespace firststart
 
         double i = std::fmod( curtime, intervalOn + intervalOff );
         return i <= intervalOn ? 1 : 0;
+    }
+    
+    uint32_t blink_timer_i( std::initializer_list<double> timings )
+    {
+        double curtime = RT_GetCurrentTime();
+
+        double sum = 0;
+        for( double t : timings )
+        {
+            sum += t;
+        }
+
+        double f = std::fmod( curtime, sum );
+
+        for( uint32_t i = 0; i < timings.size(); i++ )
+        {
+            double tm = *( timings.begin() + i );
+            if( f <= tm )
+            {
+                return i;
+            }
+            f -= tm;
+        }
+        return 0;
     }
 
     auto new_camera_rotation( const state_t& state, double dt, double mousex, double mousey ) -> DRotator
@@ -885,6 +957,61 @@ namespace firststart
         }
 #endif
 
+        const auto curTime = RT_GetCurrentTime();
+
+        if( state.page == PAGE_FADE )
+        {
+            constexpr auto fadeinDelay    = 0.5;
+            constexpr auto fadeinDuration = 2.5;
+
+            if( !state.fadeinStartTime.has_value() )
+            {
+                state.fadeinStartTime = curTime + fadeinDelay;
+            }
+
+            const auto progress =
+                std::clamp( curTime - *state.fadeinStartTime, 0.0, fadeinDuration ) /
+                fadeinDuration;
+
+            if( progress < 0.999 )
+            {
+                float t = 1.0f - float( progress );
+                t       = std::sqrt( t ); // slow down a bit
+
+                twod->AddColorOnlyQuad( 0, //
+                                        0,
+                                        twod->GetWidth(),
+                                        twod->GetHeight(),
+                                        MAKEARGB( std::clamp< int >( 255 * t, 0, 255 ), 0, 0, 0 ) );
+            }
+
+            if( progress > 0.2 )
+            {
+                g_noinput_onstart = false;
+            }
+
+            if( progress >= 0.999 && ( curTime > *state.fadeinStartTime + 6.0 ) )
+            {
+                state.page = PAGE_TTR_ROTATE;
+            }
+        }
+
+        if( state.page == PAGE_TTR_ROTATE && state.pageRotateDoneTime )
+        {
+            if( curTime > *state.pageRotateDoneTime + 1.8 )
+            {
+                state.page = PAGE_TTR_ZOOM;
+            }
+        }
+        if( state.page == PAGE_TTR_ZOOM && state.pageZoomDoneTime )
+        {
+            if( curTime > *state.pageZoomDoneTime + 1.8 )
+            {
+                state.page           = PAGE_PERF;
+                state.page1StartTime = RT_GetCurrentTime();
+            }
+        }
+
         update_camera( state );
 
         constexpr int canvas_height = 480;
@@ -906,6 +1033,7 @@ namespace firststart
             L_DRAWTEXT_DEFAULT,
             L_DRAWTEXT_SELECTED,
             L_DRAWTEXT_ERROR,
+            L_DRAWTEXT_SEMI_SELECTED,
         };
 
         auto l_drawtext = [ font ]( l_drawtext_enum e,
@@ -926,6 +1054,7 @@ namespace firststart
             {
                 switch( e )
                 {
+                    case L_DRAWTEXT_SEMI_SELECTED: rgb = { 17, 122, 100 }; break;
                     case L_DRAWTEXT_SELECTED: rgb = { 17, 122, 0 }; break;
                     case L_DRAWTEXT_ERROR: rgb = { 240, 0, 0 }; break;
                     case L_DRAWTEXT_DEFAULT:
@@ -1068,7 +1197,9 @@ namespace firststart
         auto pagetable = std::vector< std::tuple< item_t, const char*, const char* > >{};
         switch( state.page )
         {
-            case PAGE_PRESSANY:
+            case PAGE_FADE:
+            case PAGE_TTR_ROTATE:
+            case PAGE_TTR_ZOOM:
                 break;
             case PAGE_PERF:
                 pagetable.emplace_back( ITEM_MODE, "Mode", l_getmode() );
@@ -1134,8 +1265,6 @@ namespace firststart
             y += text_height + ysafe;
         }
 
-        const auto curTime = RT_GetCurrentTime();
-
         auto say = [ & ]( const char* text, l_drawtext_enum color = L_DRAWTEXT_DEFAULT ) {
             if( text && text[ 0 ] != '\0' )
             {
@@ -1144,7 +1273,34 @@ namespace firststart
             return text_height + ysafe;
         };
 
-        if( state.page != 0 )
+        if( state.page == PAGE_TTR_ROTATE || state.page == PAGE_TTR_ZOOM )
+        {
+            y = int( yoffset * 3.9f );
+
+            if( g_rt_showfirststartscene_untiemouse )
+            {
+                y += say( blink_timer() ? "Press any KEYBOARD KEY to ACTIVATE MOUSE." : "" );
+            }
+            else
+            {
+                bool pressed = ( state.page == PAGE_TTR_ROTATE && state.cameraActive ) ||
+                               ( state.page == PAGE_TTR_ZOOM && state.cameraActiveZoom );
+                bool done = ( state.page == PAGE_TTR_ROTATE && state.pageRotateDoneTime ) ||
+                            ( state.page == PAGE_TTR_ZOOM && state.pageZoomDoneTime );
+
+                auto color = done      ? L_DRAWTEXT_SEMI_SELECTED
+                             : pressed ? L_DRAWTEXT_SELECTED
+                                       : L_DRAWTEXT_DEFAULT;
+
+                const char* text = ( state.page == PAGE_TTR_ROTATE )
+                                       ? " Hold \'Left Mouse Button\' to rotate camera "
+                                       : " Hold \'Right Mouse Button\' to zoom ";
+
+                y += say( ( pressed || done ) || blink_timer( 1.7, 0.2 ) ? text : "", color );
+            }
+        }
+
+        if( state.page == PAGE_PERF || state.page == PAGE_COLOR )
         {
             y = yoffset;
 
@@ -1166,44 +1322,40 @@ namespace firststart
 
                 y += say( vram_buf, color );
             }
+            {
+                
+                    g_cpu_latency_get = true;
+
+                    char lat_buf[ 64 ];
+                    snprintf( lat_buf, std::size( lat_buf ), "%.1f ms", g_cpu_latency * 1000 );
+                    lat_buf[ std::size( lat_buf ) - 1 ] = '\0';
+                    y += say( lat_buf, L_DRAWTEXT_DEFAULT );
+            }
 
             // delay a bit messages to not overflow the user
-            const bool ok1  = state.page1StartTime && curTime > state.page1StartTime.value() + 2.0;
-            const bool ok1c = state.page1StartTime && curTime < state.page1StartTime.value() + 9.0;
-
-            const bool ok2  = state.page1StartTime && curTime > state.page1StartTime.value() + 14.0;
-            const bool ok2c =
-                false; // state.page1StartTime && curTime < state.page1StartTime.value() + 8.0;
+            const bool ok2 = state.page1StartTime && curTime > state.page1StartTime.value() + 8.0;
 
             // latency (only on the page with perf.settings)
-            if( state.page == PAGE_PERF && ok1 )
+            if( state.page == PAGE_PERF )
             {
-                auto color =
-                    ok1c && blink_timer( 0.5, 0.5 ) ? L_DRAWTEXT_SELECTED : L_DRAWTEXT_DEFAULT;
-
                 y += text_height;
-                y += say( "Use ARROWS to adjust settings. Camera movement should feel smooth.", color );
-                if( g_rt_showfirststartscene_untiemouse )
-                {
-                    y += say( blink_timer() ? "Press any KEYBOARD KEY to ACTIVATE MOUSE." : "" );
-                }
-                else
-                {
-                    y += say( ok1c || blink_timer( 3.0, 2.0 )
-                                  ? "Hold \'Left Mouse Button\' to control camera."
-                                  : "Hold \'Right Mouse Button\' to zoom.",
-                              color );
-                }
+                y += say( "Use ARROWS to adjust settings. Camera movement should feel smooth.",
+                          L_DRAWTEXT_DEFAULT );
             }
 
             // description
-            if( ok2 )
+            if( ok2 && ( state.page == PAGE_PERF || state.page == PAGE_COLOR ) )
             {
-                auto color =
-                    ok2c && blink_timer( 0.5, 0.5 ) ? L_DRAWTEXT_SELECTED : L_DRAWTEXT_DEFAULT;
+                y += say( "Press \'F\' to open the option description.", L_DRAWTEXT_DEFAULT );
+            }
 
-                y += text_height;
-                y += say( "Press \'F\' for the setting explanation.", color );
+            if (state.page == PAGE_PERF )
+            {
+                if( g_rt_showfirststartscene_untiemouse )
+                {
+                    y += text_height;
+                    y += say( blink_timer() ? "Press any KEYBOARD KEY to ACTIVATE MOUSE." : "" );
+                }
             }
 
             if( state.showDescription )
@@ -1218,54 +1370,13 @@ namespace firststart
                     case ITEM_FRAMEGEN: rtkey = "RTMNU_FRAMEGEN"; break;
                     case ITEM_VSYNC: rtkey = "RTMNU_VSYNC"; break;
                     case ITEM_HDR: rtkey = "RTMNU_HDR"; break;
-                    case ITEM_PAGE0_PRESSANYKEY:
                     case ITEM_PAGE1_ACCEPT:
                     case ITEM_PAGE2_ACCEPT:
+                    case ITEM_NONE:
                     default: break;
                 }
 
                 RT_DrawSettingDescription( rtkey, true );
-            }
-        }
-        else
-        {
-            y = int( yoffset * 3.9f );
-
-            // draw text after fading completed
-            if( state.fadeinWas && curTime > state.fadeinStartTime + 3.0 )
-            {
-                y += say( blink_timer( 2.75, 0.25 ) ? "Press ANY key to continue" : "" );
-            }
-        }
-
-        {
-            constexpr auto fadeinDelay    = 0.5;
-            constexpr auto fadeinDuration = 2.5;
-
-            if( !state.fadeinWas )
-            {
-                state.fadeinWas       = true;
-                state.fadeinStartTime = curTime + fadeinDelay;
-            }
-
-            const auto progress =
-                std::clamp( curTime - state.fadeinStartTime, 0.0, fadeinDuration ) / fadeinDuration;
-
-            if( progress < 0.999 )
-            {
-                float t = 1.0f - float( progress );
-                t       = std::sqrt( t ); // slow down a bit
-
-                twod->AddColorOnlyQuad( 0, //
-                                        0,
-                                        twod->GetWidth(),
-                                        twod->GetHeight(),
-                                        MAKEARGB( std::clamp< int >( 255 * t, 0, 255 ), 0, 0, 0 ) );
-            }
-
-            if( progress > 0.2 )
-            {
-                g_noinput_onstart = false;
             }
         }
     }
