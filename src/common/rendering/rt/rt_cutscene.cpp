@@ -1054,7 +1054,7 @@ namespace firststart
             {
                 switch( e )
                 {
-                    case L_DRAWTEXT_SEMI_SELECTED: rgb = { 17, 122, 100 }; break;
+                    case L_DRAWTEXT_SEMI_SELECTED: rgb = { 0, 122, 122 }; break;
                     case L_DRAWTEXT_SELECTED: rgb = { 17, 122, 0 }; break;
                     case L_DRAWTEXT_ERROR: rgb = { 240, 0, 0 }; break;
                     case L_DRAWTEXT_DEFAULT:
@@ -1323,30 +1323,45 @@ namespace firststart
                 y += say( vram_buf, color );
             }
             {
-                
-                    g_cpu_latency_get = true;
+                g_cpu_latency_get = true;
 
-                    char lat_buf[ 64 ];
-                    snprintf( lat_buf, std::size( lat_buf ), "%.1f ms", g_cpu_latency * 1000 );
-                    lat_buf[ std::size( lat_buf ) - 1 ] = '\0';
-                    y += say( lat_buf, L_DRAWTEXT_DEFAULT );
+                const bool framegen = l_available_framegen() && bool( cvar::rt_framegen );
+
+                const char* strformat = framegen ? "%.1f ms Input Latency [NOT ACTUAL FRAME TIME / FPS]" //
+                                                 : "%.1f ms Input Latency";
+
+                char lat_buf[ 64 ];
+                snprintf( lat_buf, std::size( lat_buf ), strformat, g_cpu_latency * 1000 );
+                lat_buf[ std::size( lat_buf ) - 1 ] = '\0';
+                y += say( lat_buf, L_DRAWTEXT_DEFAULT );
             }
-
-            // delay a bit messages to not overflow the user
-            const bool ok2 = state.page1StartTime && curTime > state.page1StartTime.value() + 8.0;
 
             // latency (only on the page with perf.settings)
-            if( state.page == PAGE_PERF )
+            if( state.page == PAGE_PERF || state.page == PAGE_COLOR )
             {
                 y += text_height;
-                y += say( "Use ARROWS to adjust settings. Camera movement should feel smooth.",
-                          L_DRAWTEXT_DEFAULT );
-            }
 
-            // description
-            if( ok2 && ( state.page == PAGE_PERF || state.page == PAGE_COLOR ) )
-            {
-                y += say( "Press \'F\' to open the option description.", L_DRAWTEXT_DEFAULT );
+                const char* text = "Press \'F\' to open the option description";
+                
+                if( state.page == PAGE_PERF )
+                {
+                    assert( state.page1StartTime );
+                    bool canswitchtext =
+                        state.page1StartTime && curTime > state.page1StartTime.value() + 8.0;
+
+                    auto b = blink_timer_i( { 4.0, 0.1, 3.5, 0.1 } );
+
+                    if( !canswitchtext || b == 0 )
+                    {
+                        text = "Use ARROWS to adjust settings. Camera movement should feel smooth.";
+                    }
+                    else if( b == 1 || b == 3 )
+                    {
+                        text = "";
+                    }
+                }
+
+                y += say( text, L_DRAWTEXT_DEFAULT );
             }
 
             if (state.page == PAGE_PERF )
