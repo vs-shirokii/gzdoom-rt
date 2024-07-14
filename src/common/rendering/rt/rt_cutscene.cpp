@@ -132,7 +132,7 @@ namespace intro
 {
     const char*    CutsceneGltfName        = "cs_intro";
     const char*    CutsceneMusicPath       = "sounds/cutscene/iconofsin_l.ogg";
-    constexpr auto CutsceneDuration        = 52;
+    constexpr auto CutsceneDuration        = 56;
     const char*    TitleImage_Path         = "title/doom2logo";
     constexpr auto TitleImage_TimeBegin    = 30.875;
     constexpr auto TitleImage_TimeBegin2   = 31.05;
