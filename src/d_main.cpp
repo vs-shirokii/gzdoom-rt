@@ -3758,7 +3758,7 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<std::string>& allw
 
 static FString RT_GetFirstStartMarker()
 {
-	return M_GetConfigPath( false ) + ".firststart2";
+	return M_GetConfigPath( false ) + ".firststart";
 }
 
 void RT_FirstStartDone()
