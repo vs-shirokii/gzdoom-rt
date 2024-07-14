@@ -270,6 +270,7 @@ bool        g_rt_forcenofocuschange  = true;
 int         rt_cullmode              = 2; // 0 -- balanced,  1 -- original gzdoom,  2 -- none
 
 extern float RT_CutsceneTime();
+extern void  RT_ForceIntroCutsceneMusicStop();
 
 extern void RT_CloseLauncherWindow();
 
@@ -2707,6 +2708,7 @@ void RT_OnLevelLoad( const char* mapname)
     g_resetfluid       = true;
     RT_ClearTitles();
     RT_InjectTitleIntoDoomMap( mapname );
+    RT_ForceIntroCutsceneMusicStop();
 }
 
 void RT_RequestMelt()
@@ -4140,7 +4142,12 @@ void RT_DeleteFullscreenImage( const char* texture )
     RG_CHECK( r );
 }
 
-void RT_DrawFullscreenImage( const char* texture, float opacity, float opacity_backgroundmult )
+void RT_DrawFullscreenImage( const char* texture,
+                             float       opacity,
+                             FVector4    background_color,
+                             FVector4    foreground_color,
+                             float       splitef = 0,
+                             float       scale   = 1 )
 {
     if( !texture || texture[ 0 ] == '\0' )
     {
@@ -4186,41 +4193,37 @@ void RT_DrawFullscreenImage( const char* texture, float opacity, float opacity_b
             ty = xwin / ximg;
         }
 
-#define VectorSet( ptr, x, y ) \
-    ( ptr )[ 0 ] = ( x );         \
+#define VectorSet2( ptr, x, y ) \
+    ( ptr )[ 0 ] = ( x );      \
     ( ptr )[ 1 ] = ( y )
 
-        tx = ( 1 - 1/tx ) / 2;
-        ty = ( 1 - 1/ty ) / 2;
+        tx = ( 1 - 1 / tx ) / 2;
+        ty = ( 1 - 1 / ty ) / 2;
 
-        VectorSet( verts_16by9[ 0 ].texCoord, tx, 1 - ty );
-        VectorSet( verts_16by9[ 1 ].texCoord, tx, ty );
-        VectorSet( verts_16by9[ 2 ].texCoord, 1 - tx, ty );
-        VectorSet( verts_16by9[ 3 ].texCoord, 1 - tx, 1 - ty );
+        VectorSet2( verts_16by9[ 0 ].texCoord, tx, 1 - ty );
+        VectorSet2( verts_16by9[ 1 ].texCoord, tx, ty );
+        VectorSet2( verts_16by9[ 2 ].texCoord, 1 - tx, ty );
+        VectorSet2( verts_16by9[ 3 ].texCoord, 1 - tx, 1 - ty );
     }
 
-    constexpr float viewproj[ 16 ] = {
+    // scale
+    {
+        for( RgPrimitiveVertex& v : verts_16by9 )
+        {
+            v.texCoord[ 0 ] = ( ( v.texCoord[ 0 ] - 0.5f ) / scale ) + 0.5f;
+            v.texCoord[ 1 ] = ( ( v.texCoord[ 1 ] - 0.5f ) / scale ) + 0.5f;
+        }
+    }
+
+    constexpr static float viewproj[ 16 ] = {
         1, 0, 0, 0, //
         0, 1, 0, 0, //
         0, 0, 1, 0, //
         0, 0, 0, 1, //
     };
 
-    // background
-    if( opacity_backgroundmult > 0 )
-    {
-        /*auto mesh = RgMeshInfo{
-            .sType                = RG_STRUCTURE_TYPE_MESH_INFO,
-            .pNext                = nullptr,
-            .flags                = 0,
-            .uniqueObjectID       = 0,
-            .pMeshName            = nullptr,
-            .transform            = RG_TRANSFORM_IDENTITY,
-            .isExportable         = false,
-            .animationTime        = 0.0f,
-            .localLightsIntensity = 1.0f,
-        };*/
-
+    auto l_drawcolor = []( const RgPrimitiveVertex( &verts )[ 4 ],
+                           RgColor4DPacked32        color ) {
         auto ui = RgMeshPrimitiveSwapchainedEXT{
             .sType           = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_SWAPCHAINED_EXT,
             .pNext           = nullptr,
@@ -4236,23 +4239,57 @@ void RT_DrawFullscreenImage( const char* texture, float opacity, float opacity_b
             .pNext                = &ui,
             .flags                = RG_MESH_PRIMITIVE_TRANSLUCENT,
             .primitiveIndexInMesh = 0,
-            .pVertices            = verts_fullscreen,
-            .vertexCount          = std::size( verts_fullscreen ),
+            .pVertices            = verts,
+            .vertexCount          = uint32_t( std::size( verts ) ),
             .pIndices             = indices,
             .indexCount           = std::size( indices ),
             .pTextureName         = nullptr,
             .textureFrame         = 0,
-            .color =
-                rt.rgUtilPackColorFloat4D( 0.0f, 0.0f, 0.0f, opacity * opacity_backgroundmult ),
-            .emissive     = 0,
-            .classicLight = 1.0f,
+            .color                = color,
+            .emissive             = 0,
+            .classicLight         = 1.0f,
         };
 
         RgResult r = rt.rgUploadMeshPrimitive( nullptr, &prim );
         RG_CHECK( r );
+    };
+
+    // back color
+    if( background_color.W > 0 )
+    {
+        l_drawcolor( verts_fullscreen,
+                     rt.rgUtilPackColorFloat4D( background_color.X, //
+                                                background_color.Y,
+                                                background_color.Z,
+                                                background_color.W ) );
     }
 
-    // text
+    if( splitef > 0 )
+    {
+        RgPrimitiveVertex half[ 4 ];
+        static_assert( sizeof( half ) == sizeof( verts_fullscreen ) );
+
+        // left, rises top -> bottom
+        {
+            memcpy( half, verts_fullscreen, sizeof( verts_fullscreen ) );
+            VectorSet2( half[ 0 ].position, -1, +1 );
+            VectorSet2( half[ 1 ].position, -1, std::lerp( 1, -1, splitef ) );
+            VectorSet2( half[ 2 ].position, 0, std::lerp( 1, -1, splitef ) );
+            VectorSet2( half[ 3 ].position, 0, +1 );
+            l_drawcolor( half, RG_PACKED_COLOR_WHITE );
+        }
+        // right, rises bottom -> top
+        {
+            memcpy( half, verts_fullscreen, sizeof( verts_fullscreen ) );
+            VectorSet2( half[ 0 ].position, 0, std::lerp( -1, 1, splitef ) );
+            VectorSet2( half[ 1 ].position, 0, -1 );
+            VectorSet2( half[ 2 ].position, +1, -1 );
+            VectorSet2( half[ 3 ].position, +1, std::lerp( -1, 1, splitef ) );
+            l_drawcolor( half, RG_PACKED_COLOR_WHITE );
+        }
+    }
+
+    // image
     {
         auto ui = RgMeshPrimitiveSwapchainedEXT{
             .sType           = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_SWAPCHAINED_EXT,
@@ -4283,6 +4320,18 @@ void RT_DrawFullscreenImage( const char* texture, float opacity, float opacity_b
         RgResult r = rt.rgUploadMeshPrimitive( nullptr, &prim );
         RG_CHECK( r );
     }
+
+    // foreground color
+    if( foreground_color.W > 0 )
+    {
+        l_drawcolor( verts_fullscreen,
+                     rt.rgUtilPackColorFloat4D( foreground_color.X, //
+                                                foreground_color.Y,
+                                                foreground_color.Z,
+                                                foreground_color.W ) );
+    }
+
+    #undef VectorSet2
 }
 
 static int         g_title_begintick{ -1 };
@@ -4364,7 +4413,10 @@ static void RT_DrawTitle()
         }
     }
 
-    RT_DrawFullscreenImage( g_title_uploaded.c_str(), alpha, 0.3f );
+    RT_DrawFullscreenImage( g_title_uploaded.c_str(), //
+                            alpha,
+                            { 0, 0, 0, alpha * 0.3f },
+                            { 0, 0, 0, 0 } );
 }
 
 static void RT_ClearTitles()

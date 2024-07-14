@@ -90,7 +90,10 @@ extern void RT_DrawSettingDescription( std::string_view rtkey, bool forFirstStar
 extern void RT_ForceCamera( const FVector3 position, const DRotator& rotation, float fovYDegrees );
 extern void RT_DrawFullscreenImage( const char* texture,
                                     float       opacity,
-                                    float       opacity_backgroundmult );
+                                    FVector4    background_color,
+                                    FVector4    foreground_color,
+                                    float       splitef,
+                                    float       scale );
 extern void RT_RegisterFullscreenImage( const char* texture );
 extern void RT_DeleteFullscreenImage( const char* texture );
 
@@ -119,15 +122,24 @@ bool RT_ForceCaptureMouse()
 
 
 #define RT_HOOK_INTRO      1
-#define RT_INTRO_SKIPPABLE 1
+#define RT_INTRO_SKIPPABLE 0
+
+#define RT_INTRO_CONTINUEMUSICTOMAINMENU 1
 
 namespace
 {
 namespace intro
 {
-    const char*    MusicPath            = "sounds/cutscene/iconofsin.ogg";
-    const char*    TitleImage_Path      = "title/doom2logo";
-    constexpr auto TitleImage_TimeBegin = 741 / 24.0;
+    const char*    CutsceneGltfName        = "cs_intro";
+    const char*    CutsceneMusicPath       = "sounds/cutscene/iconofsin_l.ogg";
+    constexpr auto CutsceneDuration        = 52;
+    const char*    TitleImage_Path         = "title/doom2logo";
+    constexpr auto TitleImage_TimeBegin    = 30.875;
+    constexpr auto TitleImage_TimeBegin2   = 31.05;
+    constexpr auto TitleImage_ColorBegin   = 32.0;
+    constexpr auto TitleImage_ColorEnd     = 42.5;
+    constexpr auto TitleImage_FadeOutBegin = 47.8;
+    constexpr auto TitleImage_TimeEnd      = 48.1;
 
 
     constexpr auto SkipDuration = 1.0f;
@@ -200,7 +212,7 @@ namespace intro
         {
             return nullptr;
         }
-        FSoundID sound = T_FindSound( MusicPath );
+        FSoundID sound = T_FindSound( CutsceneMusicPath );
         return soundEngine->StartSound( SOURCE_None, //
                                         nullptr,
                                         nullptr,
@@ -224,7 +236,7 @@ namespace intro
 
     void start( state_t& state )
     {
-        g_rt_cutscenename = "cs_intro";
+        g_rt_cutscenename = CutsceneGltfName;
         cvar::rt_classic  = 0; // cutscenes work on replacements, no classic mode available...
         if( !IsIconic( mainwindow.GetHandle() ) )
         {
@@ -245,7 +257,9 @@ namespace intro
     void destroy( state_t& state )
     {
         g_rt_cutscenename = nullptr;
+#if !RT_INTRO_CONTINUEMUSICTOMAINMENU
         stop_cutscene_music();
+#endif
         RT_DeleteFullscreenImage( TitleImage_Path );
     }
 
@@ -318,6 +332,11 @@ namespace intro
 
     bool tick( state_t& state )
     {
+        if( cstime_now() > CutsceneDuration )
+        {
+            return true;
+        }
+
         auto l_restart = []() {
             g_cstime_start  = RT_GetCurrentTime() - 29;
             g_cstime_paused = g_cstime_paused ? g_cstime_start : std::nullopt;
@@ -380,9 +399,45 @@ namespace intro
             }
         }
 
+        // draw game title
         if( cstime_now() > TitleImage_TimeBegin )
         {
-            RT_DrawFullscreenImage( TitleImage_Path, 1.0f, 0 );
+            auto l_makedt = []( double t, double begin, double end ) {
+                auto len = end - begin;
+                assert( len > 0 );
+                return float( std::clamp( t - begin, 0.0, len ) / len );
+            };
+
+            const auto timenow = cstime_now();
+
+            float cscale  = l_makedt( timenow, TitleImage_TimeBegin, TitleImage_TimeBegin2 );
+            float canim   = l_makedt( timenow, TitleImage_TimeBegin2, TitleImage_TimeEnd );
+            float calpha  = l_makedt( timenow, TitleImage_ColorBegin, TitleImage_ColorEnd );
+            float clines  = l_makedt( timenow, TitleImage_ColorEnd, CutsceneDuration );
+            float fadeout = l_makedt( timenow, TitleImage_FadeOutBegin, TitleImage_TimeEnd );
+
+#if 0 
+            auto changecolor = l_makedt(timenow, TitleImage_ColorMid, TitleImage_ColorEnd );
+#else
+            auto changecolor = 0.f;
+#endif
+            float back[] = {
+                std::lerp( 255.f, 255.f, changecolor ) / 255.f,
+                std::lerp( 62.f, 255.f, changecolor ) / 255.f,
+                std::lerp( 62.f, 255.f, changecolor ) / 255.f,
+            };
+
+            RT_DrawFullscreenImage( TitleImage_Path,
+                                    1.0f,
+                                    {
+                                        std::pow( back[ 0 ], 2.2f ),
+                                        std::pow( back[ 1 ], 2.2f ),
+                                        std::pow( back[ 2 ], 2.2f ),
+                                        0.3f + 0.7f * std::pow( calpha, 2.2f ),
+                                    },
+                                    { 0, 0, 0, fadeout },
+                                    0,
+                                    std::lerp( 1.5f, 1.f, cscale ) - std::lerp(0, 0.05f, std::sqrt(canim) ) );
         }
 
         auto* font        = SmallFont;
@@ -432,6 +487,11 @@ namespace intro
 float RT_CutsceneTime()
 {
     return float( intro::cstime_now() );
+}
+
+void RT_ForceIntroCutsceneMusicStop()
+{
+    intro::stop_cutscene_music();
 }
 
 void RT_OnHwndActivate( bool active )
