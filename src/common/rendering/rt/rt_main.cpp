@@ -4105,6 +4105,186 @@ void RT_SpawnFluid( int             count,
     }
 }
 
+void RT_RegisterFullscreenImage( const char* texture )
+{
+    if( !texture || texture[ 0 ] == '\0' )
+    {
+        return;
+    }
+
+    constexpr uint8_t empty[] = { 0, 0, 0, 0 };
+
+    auto info = RgOriginalTextureInfo{
+        .sType        = RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_INFO,
+        .pNext        = nullptr,
+        .pTextureName = texture,
+        .pPixels      = empty,
+        .size         = { 1, 1 },
+        .filter       = RG_SAMPLER_FILTER_LINEAR,
+        .addressModeU = RG_SAMPLER_ADDRESS_MODE_CLAMP,
+        .addressModeV = RG_SAMPLER_ADDRESS_MODE_CLAMP,
+    };
+
+    RgResult r = rt.rgProvideOriginalTexture( &info );
+    RG_CHECK( r );
+}
+
+void RT_DeleteFullscreenImage( const char* texture )
+{
+    if( !texture || texture[ 0 ] == '\0' )
+    {
+        return;
+    }
+
+    RgResult r = rt.rgMarkOriginalTextureAsDeleted( texture );
+    RG_CHECK( r );
+}
+
+void RT_DrawFullscreenImage( const char* texture, float opacity, float opacity_backgroundmult )
+{
+    if( !texture || texture[ 0 ] == '\0' )
+    {
+        return;
+    }
+
+    if( opacity < 0.001f )
+    {
+        return;
+    }
+
+    static constexpr uint32_t indices[] = { 0, 1, 2, 2, 3, 0 };
+
+    static constexpr RgPrimitiveVertex verts_fullscreen[] = {
+        { .position = { -1, +1, 0 }, .texCoord = { 0, 1 }, .color = 0xFFFFFFFF },
+        { .position = { -1, -1, 0 }, .texCoord = { 0, 0 }, .color = 0xFFFFFFFF },
+        { .position = { +1, -1, 0 }, .texCoord = { 1, 0 }, .color = 0xFFFFFFFF },
+        { .position = { +1, +1, 0 }, .texCoord = { 1, 1 }, .color = 0xFFFFFFFF },
+    };
+
+    RgPrimitiveVertex verts_16by9[] = {
+        verts_fullscreen[ 0 ],
+        verts_fullscreen[ 1 ],
+        verts_fullscreen[ 2 ],
+        verts_fullscreen[ 3 ],
+    };
+
+    {
+        const RgExtent2D wnd = RT_GetCurrentWindowSize();
+
+        float xwin = ( float )wnd.width / ( float )wnd.height;
+        float ximg = 16.0f / 9.0f;
+
+        float tx, ty;
+        if( ximg < xwin )
+        {
+            tx = ximg / xwin;
+            ty = 1.0f;
+        }
+        else
+        {
+            tx = 1.0f;
+            ty = xwin / ximg;
+        }
+
+#define VectorSet( ptr, x, y ) \
+    ( ptr )[ 0 ] = ( x );         \
+    ( ptr )[ 1 ] = ( y )
+
+        tx = ( 1 - 1/tx ) / 2;
+        ty = ( 1 - 1/ty ) / 2;
+
+        VectorSet( verts_16by9[ 0 ].texCoord, tx, 1 - ty );
+        VectorSet( verts_16by9[ 1 ].texCoord, tx, ty );
+        VectorSet( verts_16by9[ 2 ].texCoord, 1 - tx, ty );
+        VectorSet( verts_16by9[ 3 ].texCoord, 1 - tx, 1 - ty );
+    }
+
+    constexpr float viewproj[ 16 ] = {
+        1, 0, 0, 0, //
+        0, 1, 0, 0, //
+        0, 0, 1, 0, //
+        0, 0, 0, 1, //
+    };
+
+    // background
+    if( opacity_backgroundmult > 0 )
+    {
+        /*auto mesh = RgMeshInfo{
+            .sType                = RG_STRUCTURE_TYPE_MESH_INFO,
+            .pNext                = nullptr,
+            .flags                = 0,
+            .uniqueObjectID       = 0,
+            .pMeshName            = nullptr,
+            .transform            = RG_TRANSFORM_IDENTITY,
+            .isExportable         = false,
+            .animationTime        = 0.0f,
+            .localLightsIntensity = 1.0f,
+        };*/
+
+        auto ui = RgMeshPrimitiveSwapchainedEXT{
+            .sType           = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_SWAPCHAINED_EXT,
+            .pNext           = nullptr,
+            .flags           = 0,
+            .pViewport       = nullptr,
+            .pView           = nullptr,
+            .pProjection     = nullptr,
+            .pViewProjection = viewproj,
+        };
+
+        auto prim = RgMeshPrimitiveInfo{
+            .sType                = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO,
+            .pNext                = &ui,
+            .flags                = RG_MESH_PRIMITIVE_TRANSLUCENT,
+            .primitiveIndexInMesh = 0,
+            .pVertices            = verts_fullscreen,
+            .vertexCount          = std::size( verts_fullscreen ),
+            .pIndices             = indices,
+            .indexCount           = std::size( indices ),
+            .pTextureName         = nullptr,
+            .textureFrame         = 0,
+            .color =
+                rt.rgUtilPackColorFloat4D( 0.0f, 0.0f, 0.0f, opacity * opacity_backgroundmult ),
+            .emissive     = 0,
+            .classicLight = 1.0f,
+        };
+
+        RgResult r = rt.rgUploadMeshPrimitive( nullptr, &prim );
+        RG_CHECK( r );
+    }
+
+    // text
+    {
+        auto ui = RgMeshPrimitiveSwapchainedEXT{
+            .sType           = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_SWAPCHAINED_EXT,
+            .pNext           = nullptr,
+            .flags           = 0,
+            .pViewport       = nullptr,
+            .pView           = nullptr,
+            .pProjection     = nullptr,
+            .pViewProjection = viewproj,
+        };
+
+        auto prim = RgMeshPrimitiveInfo{
+            .sType                = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO,
+            .pNext                = &ui,
+            .flags                = RG_MESH_PRIMITIVE_TRANSLUCENT,
+            .primitiveIndexInMesh = 0,
+            .pVertices            = verts_16by9,
+            .vertexCount          = std::size( verts_16by9 ),
+            .pIndices             = indices,
+            .indexCount           = std::size( indices ),
+            .pTextureName         = texture,
+            .textureFrame         = 0,
+            .color                = rt.rgUtilPackColorFloat4D( 1.0f, 1.0f, 1.0f, opacity ),
+            .emissive             = 0,
+            .classicLight         = 1.0f,
+        };
+
+        RgResult r = rt.rgUploadMeshPrimitive( nullptr, &prim );
+        RG_CHECK( r );
+    }
+}
+
 static int         g_title_begintick{ -1 };
 static int         g_title_endtick{ -1 };
 static int         g_title_fadeouttics{ 0 };
@@ -4156,26 +4336,10 @@ static void RT_DrawTitle()
     {
         if( !g_title_uploaded.empty() )
         {
-            RgResult r = rt.rgMarkOriginalTextureAsDeleted( g_title_uploaded.c_str() );
-            RG_CHECK( r );
+            RT_DeleteFullscreenImage( g_title_uploaded.c_str() );
         }
 
-        constexpr uint8_t empty[] = { 0, 0, 0, 0 };
-
-        auto info = RgOriginalTextureInfo{
-            .sType        = RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_INFO,
-            .pNext        = nullptr,
-            .pTextureName = g_title_requested.c_str(),
-            .pPixels      = empty,
-            .size         = { 1, 1 },
-            .filter       = RG_SAMPLER_FILTER_LINEAR,
-            .addressModeU = RG_SAMPLER_ADDRESS_MODE_CLAMP,
-            .addressModeV = RG_SAMPLER_ADDRESS_MODE_CLAMP,
-        };
-
-        RgResult r = rt.rgProvideOriginalTexture( &info );
-        RG_CHECK( r );
-
+        RT_RegisterFullscreenImage( g_title_requested.c_str() );
         g_title_uploaded = g_title_requested;
     }
 
@@ -4200,143 +4364,14 @@ static void RT_DrawTitle()
         }
     }
 
-    static const uint32_t indices[] = { 0, 1, 2, 2, 3, 0 };
-
-    static const RgPrimitiveVertex verts_fullscreen[] = {
-        { .position = { -1, +1, 0 }, .texCoord = { 0, 1 }, .color = 0xFFFFFFFF },
-        { .position = { -1, -1, 0 }, .texCoord = { 0, 0 }, .color = 0xFFFFFFFF },
-        { .position = { +1, -1, 0 }, .texCoord = { 1, 0 }, .color = 0xFFFFFFFF },
-        { .position = { +1, +1, 0 }, .texCoord = { 1, 1 }, .color = 0xFFFFFFFF },
-    };
-
-    RgPrimitiveVertex verts_16by9[] = {
-        { .position = { 0 }, .texCoord = { 0, 1 }, .color = 0xFFFFFFFF },
-        { .position = { 0 }, .texCoord = { 0, 0 }, .color = 0xFFFFFFFF },
-        { .position = { 0 }, .texCoord = { 1, 0 }, .color = 0xFFFFFFFF },
-        { .position = { 0 }, .texCoord = { 1, 1 }, .color = 0xFFFFFFFF },
-    };
-
-    {
-        const RgExtent2D wnd = RT_GetCurrentWindowSize();
-
-        float xwin = ( float )wnd.width / ( float )wnd.height;
-        float ximg = 16.0f / 9.0f;
-
-        float tx, ty;
-
-        if( ximg < xwin )
-        {
-            tx = ximg / xwin;
-            ty = 1.0f;
-        }
-        else
-        {
-            tx = 1.0f;
-            ty = xwin / ximg;
-        }
-
-#define VectorSet( ptr, x, y, z ) \
-    ( ptr )[ 0 ] = ( x );         \
-    ( ptr )[ 1 ] = ( y );         \
-    ( ptr )[ 2 ] = ( z )
-
-        VectorSet( verts_16by9[ 0 ].position, -tx, +ty, 0 );
-        VectorSet( verts_16by9[ 1 ].position, -tx, -ty, 0 );
-        VectorSet( verts_16by9[ 2 ].position, +tx, -ty, 0 );
-        VectorSet( verts_16by9[ 3 ].position, +tx, +ty, 0 );
-    }
-
-    constexpr float viewproj[ 16 ] = {
-        1, 0, 0, 0, //
-        0, 1, 0, 0, //
-        0, 0, 1, 0, //
-        0, 0, 0, 1, //
-    };
-    const float background_opacity = 0.3f;
-
-    // background
-    {
-        /*auto mesh = RgMeshInfo{
-            .sType                = RG_STRUCTURE_TYPE_MESH_INFO,
-            .pNext                = nullptr,
-            .flags                = 0,
-            .uniqueObjectID       = 0,
-            .pMeshName            = nullptr,
-            .transform            = RG_TRANSFORM_IDENTITY,
-            .isExportable         = false,
-            .animationTime        = 0.0f,
-            .localLightsIntensity = 1.0f,
-        };*/
-
-        auto ui = RgMeshPrimitiveSwapchainedEXT{
-            .sType           = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_SWAPCHAINED_EXT,
-            .pNext           = nullptr,
-            .flags           = 0,
-            .pViewport       = nullptr,
-            .pView           = nullptr,
-            .pProjection     = nullptr,
-            .pViewProjection = viewproj,
-        };
-
-        auto prim = RgMeshPrimitiveInfo{
-            .sType                = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO,
-            .pNext                = &ui,
-            .flags                = RG_MESH_PRIMITIVE_TRANSLUCENT,
-            .primitiveIndexInMesh = 0,
-            .pVertices            = verts_fullscreen,
-            .vertexCount          = std::size( verts_fullscreen ),
-            .pIndices             = indices,
-            .indexCount           = std::size( indices ),
-            .pTextureName         = nullptr,
-            .textureFrame         = 0,
-            .color    = rt.rgUtilPackColorFloat4D( 0.0f, 0.0f, 0.0f, alpha * background_opacity ),
-            .emissive = 0,
-            .classicLight = 1.0f,
-        };
-
-        RgResult r = rt.rgUploadMeshPrimitive( nullptr, &prim );
-        RG_CHECK( r );
-    }
-
-    // text
-    {
-        auto ui = RgMeshPrimitiveSwapchainedEXT{
-            .sType           = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_SWAPCHAINED_EXT,
-            .pNext           = nullptr,
-            .flags           = 0,
-            .pViewport       = nullptr,
-            .pView           = nullptr,
-            .pProjection     = nullptr,
-            .pViewProjection = viewproj,
-        };
-
-        auto prim = RgMeshPrimitiveInfo{
-            .sType                = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO,
-            .pNext                = &ui,
-            .flags                = RG_MESH_PRIMITIVE_TRANSLUCENT,
-            .primitiveIndexInMesh = 0,
-            .pVertices            = verts_16by9,
-            .vertexCount          = std::size( verts_16by9 ),
-            .pIndices             = indices,
-            .indexCount           = std::size( indices ),
-            .pTextureName         = g_title_uploaded.c_str(),
-            .textureFrame         = 0,
-            .color    = rt.rgUtilPackColorFloat4D( 1.0f, 1.0f, 1.0f, alpha ),
-            .emissive = 0,
-            .classicLight = 1.0f,
-        };
-
-        RgResult r = rt.rgUploadMeshPrimitive( nullptr, &prim );
-        RG_CHECK( r );
-    }
+    RT_DrawFullscreenImage( g_title_uploaded.c_str(), alpha, 0.3f );
 }
 
 static void RT_ClearTitles()
 {
     if( !g_title_uploaded.empty() )
     {
-        RgResult r = rt.rgMarkOriginalTextureAsDeleted( g_title_uploaded.c_str() );
-        RG_CHECK( r );
+        RT_DeleteFullscreenImage( g_title_uploaded.c_str() );
     }
     g_title_requested.clear();
     g_title_uploaded.clear();

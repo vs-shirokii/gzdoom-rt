@@ -1,6 +1,7 @@
 #include "rt_cvars.h"
 #include "rt_helpers.h"
 
+#include "i_mainwindow.h"
 #include "i_time.h"
 #include "texturemanager.h"
 #include "v_draw.h"
@@ -87,6 +88,11 @@ bool        g_rt_showfirststartscene_untiemouse{ false };
 
 extern void RT_DrawSettingDescription( std::string_view rtkey, bool forFirstStartMenu );
 extern void RT_ForceCamera( const FVector3 position, const DRotator& rotation, float fovYDegrees );
+extern void RT_DrawFullscreenImage( const char* texture,
+                                    float       opacity,
+                                    float       opacity_backgroundmult );
+extern void RT_RegisterFullscreenImage( const char* texture );
+extern void RT_DeleteFullscreenImage( const char* texture );
 
 extern FSoundID T_FindSound( const char* name );
 
@@ -113,12 +119,17 @@ bool RT_ForceCaptureMouse()
 
 
 #define RT_HOOK_INTRO      1
-#define RT_INTRO_SKIPPABLE 0
+#define RT_INTRO_SKIPPABLE 1
 
 namespace
 {
 namespace intro
 {
+    const char*    MusicPath            = "sounds/cutscene/iconofsin.ogg";
+    const char*    TitleImage_Path      = "title/doom2logo";
+    constexpr auto TitleImage_TimeBegin = 741 / 24.0;
+
+
     constexpr auto SkipDuration = 1.0f;
 
     FSoundChan* g_cutscene_music{};
@@ -135,14 +146,14 @@ namespace intro
 
     double      cstime_now();
     FSoundChan* start_cutscene_music( double starttime );
+    void        stop_cutscene_music();
 
     void cstime_pause()
     {
         assert( !g_cstime_paused );
         g_cstime_paused = RT_GetCurrentTime();
 
-        soundEngine->StopChannel( g_cutscene_music );
-        g_cutscene_music = nullptr;
+        stop_cutscene_music();
     }
     void cstime_continue()
     {
@@ -158,7 +169,7 @@ namespace intro
         }
         g_cstime_paused = std::nullopt;
 
-        soundEngine->StopChannel( g_cutscene_music );
+        stop_cutscene_music();
         g_cutscene_music = start_cutscene_music( cstime_now() );
     }
     double cstime_now()
@@ -185,7 +196,11 @@ namespace intro
 
     FSoundChan* start_cutscene_music( double starttime )
     {
-        FSoundID sound = T_FindSound( "sounds/cutscene/iconofsin.ogg" );
+        if( !soundEngine )
+        {
+            return nullptr;
+        }
+        FSoundID sound = T_FindSound( MusicPath );
         return soundEngine->StartSound( SOURCE_None, //
                                         nullptr,
                                         nullptr,
@@ -198,21 +213,40 @@ namespace intro
                                         0,
                                         float( starttime ) );
     }
+    void stop_cutscene_music()
+    {
+        if( soundEngine && g_cutscene_music )
+        {
+            soundEngine->StopChannel( g_cutscene_music );
+        }
+        g_cutscene_music = nullptr;
+    }
 
     void start( state_t& state )
     {
         g_rt_cutscenename = "cs_intro";
-        g_cstime_start    = RT_GetCurrentTime();
-        g_cstime_paused   = {};
         cvar::rt_classic  = 0; // cutscenes work on replacements, no classic mode available...
-        g_cutscene_music  = start_cutscene_music( cstime_now() );
+        if( !IsIconic( mainwindow.GetHandle() ) )
+        {
+            g_cstime_start   = RT_GetCurrentTime();
+            g_cstime_paused  = {};
+            g_cutscene_music = start_cutscene_music( cstime_now() );
+        }
+        else
+        {
+            // in case cutscene started with minimized window :(
+            g_cstime_start  = RT_GetCurrentTime();
+            g_cstime_paused = RT_GetCurrentTime();
+            g_cutscene_music = nullptr;
+        }
+        RT_RegisterFullscreenImage( TitleImage_Path );
     }
 
     void destroy( state_t& state )
     {
         g_rt_cutscenename = nullptr;
-
-        soundEngine->StopChannel( g_cutscene_music );
+        stop_cutscene_music();
+        RT_DeleteFullscreenImage( TitleImage_Path );
     }
 
     bool input( state_t& state, const FInputEvent& ev )
@@ -234,6 +268,7 @@ namespace intro
                 }
             }
 
+#if 0
             if( ev.KeyScan == KEY_SPACE )
             {
                 if( ev.Type == EV_KeyUp )
@@ -242,6 +277,7 @@ namespace intro
                     return true;
                 }
             }
+#endif
         }
 
         // unpause
@@ -283,9 +319,9 @@ namespace intro
     bool tick( state_t& state )
     {
         auto l_restart = []() {
-            g_cstime_start  = RT_GetCurrentTime();
+            g_cstime_start  = RT_GetCurrentTime() - 29;
             g_cstime_paused = g_cstime_paused ? g_cstime_start : std::nullopt;
-            soundEngine->StopChannel( g_cutscene_music );
+            stop_cutscene_music();
             g_cutscene_music = start_cutscene_music( cstime_now() );
         };
 
@@ -331,14 +367,22 @@ namespace intro
 
     void draw( state_t& state )
     {
-        if( state.m_syncaudiohack >= 0 )
+        if( !g_cstime_paused )
         {
-            if( state.m_syncaudiohack == 0 )
+            if( state.m_syncaudiohack >= 0 )
             {
-                soundEngine->StopChannel( g_cutscene_music );
-                g_cutscene_music = start_cutscene_music( cstime_now() );
+                if( state.m_syncaudiohack == 0 )
+                {
+                    stop_cutscene_music();
+                    g_cutscene_music = start_cutscene_music( cstime_now() );
+                }
+                state.m_syncaudiohack--;
             }
-            state.m_syncaudiohack--;
+        }
+
+        if( cstime_now() > TitleImage_TimeBegin )
+        {
+            RT_DrawFullscreenImage( TitleImage_Path, 1.0f, 0 );
         }
 
         auto* font        = SmallFont;
