@@ -7,6 +7,8 @@
 #include "v_draw.h"
 #include "v_font.h"
 
+EXTERN_CVAR( Float, snd_mastervolume )
+
 extern void RT_FirstStartDone();
 extern bool g_noinput_onstart;
 
@@ -544,13 +546,13 @@ namespace firststart
         ITEM_VSYNC,
         ITEM_PAGE1_ACCEPT,
 
-        ITEM_HDR,
+        ITEM_SOUND,
         ITEM_PAGE2_ACCEPT,
     };
     // clang-format off
     template< page_t > constexpr auto PageBeginEnd = std::pair< item_t, item_t >{ ITEM_NONE, ITEM_NONE };
     template<>         constexpr auto PageBeginEnd< PAGE_PERF       > = std::pair{ ITEM_MODE, ITEM_PAGE1_ACCEPT };
-    template<>         constexpr auto PageBeginEnd< PAGE_COLOR      > = std::pair{ ITEM_HDR, ITEM_PAGE2_ACCEPT };
+    template<>         constexpr auto PageBeginEnd< PAGE_COLOR      > = std::pair{ ITEM_SOUND, ITEM_PAGE2_ACCEPT };
 	// clang-format on
 
     // from gltf
@@ -606,6 +608,16 @@ namespace firststart
     bool vsync_forced()
     {
         return cvar::rt_framegen && cvar::rt_upscale_dlss > 0 && cvar::rt_available_dlss3fg;
+    }
+
+    void play_button_sound()
+    {
+        if( soundEngine )
+        {
+            FSoundID sound = T_FindSound( "menu/cursor" );
+            soundEngine->StartSound(
+                SOURCE_None, nullptr, nullptr, CHAN_AUTO, CHANF_UI, sound, 1.05f, ATTN_NONE );
+        }
     }
 
     bool input( state_t& state, const FInputEvent& ev )
@@ -776,11 +788,11 @@ namespace firststart
                         case ITEM_MODE:
                         case ITEM_PRESET:
                         case ITEM_FRAMEGEN:
-                        case ITEM_VSYNC:
-                        case ITEM_HDR: {
+                        case ITEM_VSYNC: {
                             state.showDescription = state.current;
                             break;
                         }
+                        case ITEM_SOUND:
                         case ITEM_PAGE1_ACCEPT:
                         case ITEM_PAGE2_ACCEPT:
                         default: break;
@@ -802,15 +814,9 @@ namespace firststart
             {
                 if( state.current == ITEM_PAGE1_ACCEPT )
                 {
-                    if( !cvar::rt_hdr_available )
-                    {
-                        // no HDR => skip the HDR page
-                        state.finished = true;
-                        return true;
-                    }
-
                     state.page    = PAGE_COLOR;
-                    state.current = ITEM_PAGE2_ACCEPT;
+                    state.current = ITEM_SOUND;
+                    play_button_sound();
                     return true;
                 }
                 if( state.current == ITEM_PAGE2_ACCEPT )
@@ -894,6 +900,12 @@ namespace firststart
                         }
                         return true;
                     }
+                    case ITEM_SOUND: {
+                        const float v    = snd_mastervolume + ( left ? -0.05f : +0.05f );
+                        snd_mastervolume = std::clamp< float >( v, 0, 1 );
+                        play_button_sound();
+                        return true;
+                    }
                     default: break;
                 }
             }
@@ -909,10 +921,6 @@ namespace firststart
                             // hack
                             cvar::rt_framegen = false;
                         }
-                        return true;
-                    }
-                    case ITEM_HDR: {
-                        cvar::rt_hdr = !bool( cvar::rt_hdr );
                         return true;
                     }
                     case ITEM_FRAMEGEN: {
@@ -1321,8 +1329,24 @@ namespace firststart
             return cvar::rt_vsync ? "ON" : "OFF";
         };
 
-        auto l_gethdr = []() -> const char* {
-            return cvar::rt_hdr && cvar::rt_hdr_available ? "ON" : "OFF";
+        auto l_getsoundvol = []() -> const char* {
+            int v = std::clamp( int( 100 * float( snd_mastervolume ) ), 0, 100 );
+            // round by 5
+            v = ( v + 2 ) / 5;
+
+            static std::string s_storage{};
+            s_storage = " [";
+            int i;
+            for( i = 0; i < v; i++ )
+            {
+                s_storage += 'I';
+            }
+            for( ; i < 20; i++ )
+            {
+                s_storage += ' ';
+            }
+            s_storage += "] ";
+            return s_storage.c_str();
         };
 
         auto l_available_framegen = []() -> bool {
@@ -1367,7 +1391,7 @@ namespace firststart
                 pagetable.emplace_back( ITEM_PAGE1_ACCEPT, "Apply", nullptr );
                 break;
             case PAGE_COLOR:
-                pagetable.emplace_back( ITEM_HDR, "HDR", l_gethdr() );
+                pagetable.emplace_back( ITEM_SOUND, " Sound Volume ", l_getsoundvol() );
                 pagetable.emplace_back( ITEM_PAGE2_ACCEPT, "Apply", nullptr );
                 break;
             default: assert( 0 ); break;
@@ -1495,7 +1519,7 @@ namespace firststart
             }
 
             // latency (only on the page with perf.settings)
-            if( state.page == PAGE_PERF || state.page == PAGE_COLOR )
+            if( state.page == PAGE_PERF )
             {
                 y += text_height;
 
@@ -1521,8 +1545,6 @@ namespace firststart
 
                 y += say( text, L_DRAWTEXT_DEFAULT );
             }
-
-            if (state.page == PAGE_PERF )
             {
                 if( g_rt_showfirststartscene_untiemouse )
                 {
@@ -1542,7 +1564,7 @@ namespace firststart
                     case ITEM_PRESET: rtkey = "RTMNU_PRESET"; break;
                     case ITEM_FRAMEGEN: rtkey = "RTMNU_FRAMEGEN"; break;
                     case ITEM_VSYNC: rtkey = "RTMNU_VSYNC"; break;
-                    case ITEM_HDR: rtkey = "RTMNU_HDR"; break;
+                    case ITEM_SOUND:
                     case ITEM_PAGE1_ACCEPT:
                     case ITEM_PAGE2_ACCEPT:
                     case ITEM_NONE:
