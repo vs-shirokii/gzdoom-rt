@@ -44,6 +44,10 @@
 
 EXTERN_CVAR(Int, r_mirror_recursions)
 EXTERN_CVAR(Bool, gl_portals)
+namespace cvar
+{
+EXTERN_CVAR( Bool, rt_sky_always )
+}
 
 void SetPlaneTextureRotation(FRenderState& state, HWSectorPlane* plane, FGameTexture* texture);
 
@@ -95,6 +99,20 @@ void FPortalSceneState::EndFrame(HWDrawInfo *di, FRenderState &state)
 		indent += "  ";
 	}
 
+#if HAVE_RT
+	// no sky walls/floor/ceiling visible... emulate it :(
+	if( di->Portals.size() == 0 )
+	{
+		if( cvar::rt_sky_always )
+		{
+			HWSkyInfo skyinfo{};
+			skyinfo.init( di, nullptr, sector_t::ceiling, 0, 0 );
+			auto emulated_skyportal = HWSkyPortal{ screen->mSkyData, &portalState, &skyinfo };
+			RenderPortal( &emulated_skyportal, state, true, di );
+		}
+	}
+	else
+#endif
 	while (di->Portals.Pop(p) && p)
 	{
 		if (gl_portalinfo) 
@@ -227,6 +245,9 @@ void HWPortal::DrawPortalStencil(FRenderState &state, int pass)
 	
 	for (unsigned int i = 0; i < mPrimIndices.Size(); i += 2)
 	{
+		auto rtexp = rtstate.push_type(
+		    RT_IsWallExportable( lines[ i / 2 ].seg ) ? RtPrim::ExportMap : RtPrim::Identity );
+
 		state.Draw(DT_TriangleFan, mPrimIndices[i], mPrimIndices[i + 1], i == 0);
 	}
 	if (NeedCap() && lines.Size() > 1)

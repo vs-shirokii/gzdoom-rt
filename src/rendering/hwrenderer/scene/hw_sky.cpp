@@ -45,6 +45,13 @@ CVAR(Bool,gl_noskyboxes, false, 0)
 
 FTextureID GetSkyTexture(sector_t* sec, int plane, int second)
 {
+#if HAVE_RT
+	if( !sec )
+	{
+		return second ? level.skytexture2 : level.skytexture1;
+	}
+#endif
+
 	auto tex = sec->planes[plane].skytexture[second];
 	if (tex.isValid()) return tex;
 	return second ? sec->Level->skytexture2 : sec->Level->skytexture1;

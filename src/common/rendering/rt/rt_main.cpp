@@ -153,6 +153,7 @@ namespace cvar
     RT_CVAR( rt_sky,                    100.f,  "sky intensity")
     RT_CVAR( rt_sky_saturation,         1.f,    "sky saturation")
     RT_CVAR( rt_sky_stretch,            1.2f,   "how much to stretch the sky sphere along the vertical axis")
+    RT_CVAR( rt_sky_always,             true,   "always submit sky geometry (even if it's not visible in primary view)")
 
     // RT_CVAR( rt_sun,                 7000.f, "sun intensity")
     // RT_CVAR( rt_sun_diameter,        0.5f,   "sun angular diameter in degrees")
