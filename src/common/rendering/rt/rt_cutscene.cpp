@@ -88,6 +88,8 @@ static auto        g_cstime_paused = std::optional< double >{};
 extern bool g_rt_showfirststartscene;
 bool        g_rt_showfirststartscene_untiemouse{ false };
 
+bool g_rt_wascutscene{ false };
+
 extern void RT_DrawSettingDescription( std::string_view rtkey, bool forFirstStartMenu );
 extern void RT_ForceCamera( const FVector3 position, const DRotator& rotation, float fovYDegrees );
 extern void RT_DrawFullscreenImage( const char* texture,
@@ -136,8 +138,8 @@ namespace intro
     const char*    CutsceneMusicPath       = "sounds/cutscene/iconofsin_l.ogg";
     constexpr auto CutsceneDuration        = 56;
     const char*    TitleImage_Path         = "title/doom2logo";
-    constexpr auto TitleImage_TimeBegin    = 30.875;
-    constexpr auto TitleImage_TimeBegin2   = 31.05;
+    constexpr auto TitleImage_TimeBegin    = 30.75;
+    constexpr auto TitleImage_TimeBegin2   = 30.9;
     constexpr auto TitleImage_ColorBegin   = 32.0;
     constexpr auto TitleImage_ColorEnd     = 42.5;
     constexpr auto TitleImage_FadeOutBegin = 47.8;
@@ -254,6 +256,8 @@ namespace intro
             g_cutscene_music = nullptr;
         }
         RT_RegisterFullscreenImage( TitleImage_Path );
+
+        g_rt_wascutscene = true;
     }
 
     void destroy( state_t& state )

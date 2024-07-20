@@ -1365,16 +1365,62 @@ void D_PageTicker (void)
 //
 //==========================================================================
 
+#if HAVE_RT
+extern bool g_rt_wascutscene;
+#endif
+
 void D_PageDrawer (void)
 {
 	ClearRect(twod, 0, 0, SCREENWIDTH, SCREENHEIGHT, 0, 0);
 	if (Page.Exists())
 	{
-		DrawTexture(twod, Page, true, 0, 0,
+#if !HAVE_RT
+		DrawTexture(twod, Page, true, 0, y,
 			DTA_Fullscreen, true,
 			DTA_Masked, false,
 			DTA_BilinearFilter, true,
 			TAG_DONE);
+#else
+		constexpr double DURATION = 17.25;
+		constexpr double STARTY   = 0.6;
+
+		auto l_progress = []() -> double {
+			if( !g_rt_wascutscene )
+			{
+				return 1;
+			}
+			static bool s_done = false;
+			if( s_done )
+			{
+				return 1;
+			}
+			static auto s_begintimer = std::optional< double >{};
+			if( !s_begintimer )
+			{
+				s_begintimer = RT_GetCurrentTime();
+			}
+			double dt = RT_GetCurrentTime() - *s_begintimer;
+			if( dt > DURATION )
+			{
+				s_done = true;
+			}
+			return std::clamp( dt / DURATION, 0.0, 1.0 );
+		};
+		double t = l_progress();
+		double y = std::lerp( SCREENHEIGHT * STARTY, 0, t );
+		DrawTexture( twod,
+		             Page,
+		             true,
+		             0,
+		             0,
+		             DTA_Fullscreen, true,
+		             DTA_Masked, false,
+		             DTA_BilinearFilter, true,
+		             DTA_ViewportY, int(y),
+		             TAG_DONE );
+		// i can't find DTA wrapping mode control...
+		ClearRect( twod, 0, 0, SCREENWIDTH, y + 8, 0, 0 );
+#endif
 	}
 	if (Subtitle != nullptr)
 	{
@@ -1534,6 +1580,10 @@ void D_DoStrifeAdvanceDemo ()
 //
 //==========================================================================
 
+#if HAVE_RT
+extern bool g_rt_wascutscene;
+#endif
+
 void D_DoAdvanceDemo (void)
 {
 	static char demoname[8] = "DEMO1";
@@ -1607,6 +1657,9 @@ void D_DoAdvanceDemo (void)
 		gamestate = GS_DEMOSCREEN;
 		pagename = gameinfo.TitlePage;
 		pagetic = (int)(gameinfo.titleTime * TICRATE);
+#if HAVE_RT
+		if( !g_rt_wascutscene )
+#endif
 		if (!playedtitlemusic) S_ChangeMusic (gameinfo.titleMusic.GetChars(), gameinfo.titleOrder, false);
 		playedtitlemusic = true;
 		demosequence = 3;
