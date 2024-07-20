@@ -4335,11 +4335,14 @@ void RT_DrawFullscreenImage( const char* texture,
     #undef VectorSet2
 }
 
+extern FSoundID T_FindSound( const char* name );
+
 static int         g_title_begintick{ -1 };
 static int         g_title_endtick{ -1 };
 static int         g_title_fadeouttics{ 0 };
 static std::string g_title_requested{};
 static std::string g_title_uploaded{};
+static bool        g_title_soundplayed{ false };
 
 void RT_StartTitleImage( const char* imagepath,
                          int         begin_maptime,
@@ -4352,6 +4355,7 @@ void RT_StartTitleImage( const char* imagepath,
         g_title_endtick     = -1;
         g_title_begintick   = -1;
         g_title_fadeouttics = 0;
+        g_title_soundplayed = false;
         return;
     }
 
@@ -4359,6 +4363,7 @@ void RT_StartTitleImage( const char* imagepath,
     g_title_begintick   = begin_maptime;
     g_title_endtick     = end_maptime;
     g_title_fadeouttics = fadeout_tics;
+    g_title_soundplayed = false;
 }
 
 static void RT_DrawTitle()
@@ -4418,6 +4423,18 @@ static void RT_DrawTitle()
                             alpha,
                             { 0, 0, 0, alpha * 0.3f },
                             { 0, 0, 0, 0 } );
+    
+    if( !g_title_soundplayed )
+    {
+        g_title_soundplayed = true;
+
+        if( soundEngine )
+        {
+            FSoundID sound = T_FindSound( "sounds/cutscene/boom.ogg" );
+            soundEngine->StartSound(
+                SOURCE_None, nullptr, nullptr, CHAN_AUTO, CHANF_UI, sound, 1.0f, ATTN_NONE );
+        }
+    }
 }
 
 static void RT_ClearTitles()
@@ -4431,6 +4448,7 @@ static void RT_ClearTitles()
     g_title_begintick   = -1;
     g_title_endtick     = -1;
     g_title_fadeouttics = 0;
+    g_title_soundplayed = false;
 }
 
 extern bool rt_isdoom2;
