@@ -1493,14 +1493,31 @@ static void SetWindowRounding( HWND hwnd, bool rounded )
 
 extern std::atomic< HWND > g_msgbox_parent;
 
+// TODO: set to 1, when Doom 1 is done
+#define DOOM1_RT_OK 0
+
 static void AskUserToChoose(std::stop_token stopToken, std::promise<ChooseResult> &result, bool hasUltimateDoom, bool hasDoom2 )
 {
+#if DOOM1_RT_OK
 	if (!hasUltimateDoom && !hasDoom2)
 	{
-		RT_ShowWarningMessageBox("Can't find Doom (1993) or Doom II.\nPlease, install them on Steam");
+		RT_ShowWarningMessageBox( "Can't find Doom (1993) or Doom II.\n"
+		                          "(Or provided .wad is not compatible.)\n\n"
+		                          "Please, install them on Steam." );
 		result.set_value(ChooseResult::Close);
 		return;
 	}
+#else
+	if( !hasDoom2 )
+	{
+		RT_ShowWarningMessageBox(
+		    "Can't find DOOM II\n"
+		    "or doom2.wad is not \'doom.id.doom2.commercial\'\n\n"
+		    "Please, install DOOM II on Steam, and relaunch." );
+		result.set_value( ChooseResult::Close );
+		return;
+	}
+#endif
 
 	static auto loadimg2 = []( const char* path ) -> img_t {
 		int  x, y, channels;
@@ -1925,7 +1942,7 @@ int I_PickIWad(WadStuff *wads, int numwads, bool showwin, int defaultiwad, int& 
 		g_rt_waitRendererFullInit = std::make_unique<std::jthread>(
 			AskUserToChoose, 
 			std::ref(resPromise),
-#if 0 // TODO: UNCOMMENT WHEN DOOM 1 IS DONE
+#if DOOM1_RT_OK
 			ultimateDoom.has_value(),
 #else
 			false,
