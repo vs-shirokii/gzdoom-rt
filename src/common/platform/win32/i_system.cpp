@@ -1730,7 +1730,8 @@ static void AskUserToChoose(std::stop_token stopToken, std::promise<ChooseResult
 	}
 
 	// if need a sequence
-	if( cvar::rt_firststart )
+	if( ( cvar::rt_firststart && Args->CheckParm( "-rtwinseq" ) > 0 ) ||
+	    ( Args->CheckParm( "-rtwinseqforce" ) > 0 ) )
 	{
 		g_continueMain     = false;
 		g_showFullSequence = true;
