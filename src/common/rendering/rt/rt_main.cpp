@@ -2989,26 +2989,28 @@ void RTFrameBuffer::RT_BeginFrame()
     RG_CHECK( r );
 
 
-    if( staticscene_status & RG_STATIC_SCENE_STATUS_LOADED )
-    {
+    auto l_clm = [ staticscene_status ]() {
+        if( staticscene_status & RG_STATIC_SCENE_STATUS_EXPORT_STARTED )
+        {
+            return 2; // no cull as we need to upload all geometry for the first time
+        }
         if( staticscene_status & RG_STATIC_SCENE_STATUS_NEW_SCENE_STARTED )
         {
-            rt_cullmode = 2; // no cull as we need to upload all geometry for the first time
+            return 2; // touch everything, to upload all resources
         }
-        else
+        if( !( staticscene_status & RG_STATIC_SCENE_STATUS_LOADED ) )
         {
-            switch( int( cvar::rt_cpu_cullmode ) )
-            {
-                case 1: rt_cullmode = 1; break;
-                case 2: rt_cullmode = 2; break;
-                default: rt_cullmode = 0; break;
-            }
+            return 2; // no static scene, upload everything
         }
-    }
-    else
-    {
-        rt_cullmode = 2; // no static scene, upload everything
-    }
+        switch( int( cvar::rt_cpu_cullmode ) )
+        {
+            case 1: return 1;
+            case 2: return 2;
+            default: return 0;
+        }
+    };
+
+    rt_cullmode = l_clm();
 }
 
 void RTFrameBuffer::RT_DrawFrame()
