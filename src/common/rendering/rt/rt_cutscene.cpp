@@ -540,13 +540,17 @@ namespace firststart
         PAGE_COLOR,
     };
 
+#define FG_BUTTON 0
+
     enum item_t
     {
         ITEM_NONE,
 
         ITEM_MODE,
         ITEM_PRESET,
+#if FG_BUTTON
         ITEM_FRAMEGEN,
+#endif
         ITEM_VSYNC,
         ITEM_PAGE1_ACCEPT,
 
@@ -791,7 +795,9 @@ namespace firststart
                     {
                         case ITEM_MODE:
                         case ITEM_PRESET:
+#if FG_BUTTON
                         case ITEM_FRAMEGEN:
+#endif
                         case ITEM_VSYNC: {
                             state.showDescription = state.current;
                             break;
@@ -927,6 +933,7 @@ namespace firststart
                         }
                         return true;
                     }
+#if FG_BUTTON
                     case ITEM_FRAMEGEN: {
                         if( ( cvar::rt_upscale_dlss > 0 && cvar::rt_available_dlss3fg ) ||
                             ( cvar::rt_upscale_fsr2 > 0 && cvar::rt_available_fsr3fg ) )
@@ -935,6 +942,7 @@ namespace firststart
                         }
                         return true;
                     }
+#endif
                     default: break;
                 }
             }
@@ -1390,7 +1398,9 @@ namespace firststart
             case PAGE_PERF:
                 pagetable.emplace_back( ITEM_MODE, "Mode", l_getmode() );
                 pagetable.emplace_back( ITEM_PRESET, "Preset", l_getpreset() );
+#if FG_BUTTON
                 pagetable.emplace_back( ITEM_FRAMEGEN, "Frame Generation", l_getframegen() );
+#endif
                 pagetable.emplace_back( ITEM_VSYNC, "VSync", l_getvsync() );
                 pagetable.emplace_back( ITEM_PAGE1_ACCEPT, "Apply", nullptr );
                 break;
@@ -1413,9 +1423,12 @@ namespace firststart
         {
             const bool isselected = ( state.current == item );
 
-            const bool available = ( item == ITEM_FRAMEGEN ? l_available_framegen()
-                                     : item == ITEM_VSYNC  ? !vsync_forced()
-                                                           : true );
+            const bool available =
+#if FG_BUTTON
+                item == ITEM_FRAMEGEN ? l_available_framegen() :
+#endif
+                item == ITEM_VSYNC ? !vsync_forced()
+                                   : true;
 
             if( value )
             {
@@ -1566,7 +1579,9 @@ namespace firststart
                 {
                     case ITEM_MODE: rtkey = "RTMNU_MODE"; break;
                     case ITEM_PRESET: rtkey = "RTMNU_PRESET"; break;
+#if FG_BUTTON
                     case ITEM_FRAMEGEN: rtkey = "RTMNU_FRAMEGEN"; break;
+#endif
                     case ITEM_VSYNC: rtkey = "RTMNU_VSYNC"; break;
                     case ITEM_SOUND:
                     case ITEM_PAGE1_ACCEPT:
