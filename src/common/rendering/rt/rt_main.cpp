@@ -146,9 +146,9 @@ namespace cvar
     RT_CVAR( rt_tnmp_crosstalk_g,       0.7f,   "how much to shift Green, when Red or Blue are intense; set one channel to 1.0, others to <= 1.0" )
     RT_CVAR( rt_tnmp_crosstalk_b,       0.8f,   "how much to shift Blue, when Red or Green are intense; set one channel to 1.0, others to <= 1.0" )
     RT_CVAR( rt_tnmp_contrast,          0.1f,   "(only if rt_hdr is OFF) LDR contrast" )
-    RT_CVAR( rt_hdr_contrast,           0.25f,  "(only if rt_hdr is ON) HDR contrast" )
-    RT_CVAR( rt_hdr_saturation,         0.5f,   "(only if rt_hdr is ON) HDR saturation: -1 desaturate, +1 over saturate" )
-    RT_CVAR( rt_hdr_brightness,         1.5f,   "(only if rt_hdr is ON) HDR brightess multiplier" )
+    RT_CVAR( rt_hdr_contrast,           0.15f,  "(only if rt_hdr is ON) HDR contrast" )
+    RT_CVAR( rt_hdr_saturation,         0.15f,  "(only if rt_hdr is ON) HDR saturation: -1 desaturate, +1 over saturate" )
+    RT_CVAR( rt_hdr_brightness,         1.0f,   "(only if rt_hdr is ON) HDR brightess multiplier" )
 
     RT_CVAR( rt_sky,                    100.f,  "sky intensity")
     RT_CVAR( rt_sky_saturation,         1.f,    "sky saturation")
