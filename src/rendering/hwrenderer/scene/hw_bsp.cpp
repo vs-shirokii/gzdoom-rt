@@ -249,6 +249,17 @@ void HWDrawInfo::UnclipSubsector(subsector_t *sub)
 	}
 }
 
+static bool RT_CanOmitUploadOfStaticExportable()
+{
+	// if using classic mode, we must upload visible surfaces,
+	// even static exportables, since classic doesn't draw baked static geometry
+	if( cvar::rt_classic > 0.001f )
+	{
+		return false;
+	}
+	return true;
+}
+
 //==========================================================================
 //
 // R_AddLine
@@ -379,7 +390,7 @@ void HWDrawInfo::AddLine (seg_t *seg, bool portalclip)
 		{
 #if HAVE_RT
 			bool needupload = true;
-			if( rt_cullmode == 0 )
+			if( rt_cullmode != 2 && RT_CanOmitUploadOfStaticExportable() )
 			{
 				if( RT_IsWallExportable( seg ) )
 				{
@@ -819,7 +830,7 @@ void HWDrawInfo::DoSubsector(subsector_t * sub)
 
 #if HAVE_RT
 					bool needupload = true;
-					if( rt_cullmode == 0 )
+					if( rt_cullmode != 2 && RT_CanOmitUploadOfStaticExportable() )
 					{
 						if( RT_IsSectorExportable2( sector->sectornum, false ) &&
 							RT_IsSectorExportable2( sector->sectornum, true ) )
