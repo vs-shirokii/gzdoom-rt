@@ -1900,9 +1900,7 @@ int I_PickIWad(WadStuff *wads, int numwads, bool showwin, int defaultiwad, int& 
     {
         if (wads[i].Autoname == FString{ "doom.id.doom1.ultimate" })
         {
-#if 0 // TODO: uncomment when Doom 1 is done
 	        ultimateDoom = i;
-#endif
         }
         else if (wads[i].Autoname == FString{ "doom.id.doom2.commercial" })
         {
@@ -1927,20 +1925,26 @@ int I_PickIWad(WadStuff *wads, int numwads, bool showwin, int defaultiwad, int& 
 		g_rt_waitRendererFullInit = std::make_unique<std::jthread>(
 			AskUserToChoose, 
 			std::ref(resPromise),
+#if 0 // TODO: UNCOMMENT WHEN DOOM 1 IS DONE
 			ultimateDoom.has_value(),
+#else
+			false,
+#endif
 			doom2.has_value());
 		
 		res = resFuture.get();
 	}
-
-    switch (res)
-    {
-    case ChooseResult::UltimateDoom: assert(ultimateDoom); return *ultimateDoom;
-    case ChooseResult::Doom2: assert(doom2); return *doom2;
-    case ChooseResult::Close: return -1;
-    case ChooseResult::Fallback:break;
-    default:assert(0); break;
-    }
+	
+    switch( res )
+	{
+		case ChooseResult::UltimateDoom:
+			assert( ultimateDoom );
+			return ultimateDoom ? *ultimateDoom : -1;
+		case ChooseResult::Doom2: assert( doom2 ); return doom2 ? *doom2 : -1;
+		case ChooseResult::Close: return -1;
+		case ChooseResult::Fallback: break;
+		default: assert( 0 ); break;
+	}
 #endif
 	int vkey;
 	pAutoloadflags = &autoloadflags;
