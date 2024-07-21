@@ -89,6 +89,10 @@ public:
 	// Be aware this can be called during the callback invocation after Play is called.
 	virtual Position GetPlayPosition() = 0;
 	virtual FString GetStats();
+
+#if HAVE_RT
+	virtual void RT_SetMusicHighPass( float highpass ){}
+#endif
 };
 
 typedef bool (*SoundStreamCallback)(SoundStream *stream, void *buff, int len, void *userdata);

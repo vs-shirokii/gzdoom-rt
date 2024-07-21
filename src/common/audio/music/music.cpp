@@ -57,6 +57,10 @@
 #include "c_cvars.h"
 #include "md5.h"
 
+#if HAVE_RT
+#include "rt/rt_cvars.h"
+#endif
+
 // EXTERNAL FUNCTION PROTOTYPES --------------------------------------------
 
 extern int nomusic;
@@ -197,6 +201,31 @@ static bool FillStream(SoundStream* stream, void* buff, int len, void* userdata)
 }
 
 
+#if HAVE_RT
+void RT_UpdateMusicHighpass( const float* highpass )
+{
+	if( !mus_playing.handle || !musicStream )
+	{
+		return;
+	}
+
+	static float s_prev = 0;
+
+	if( !highpass )
+	{
+		musicStream->RT_SetMusicHighPass( s_prev );
+		return;
+	}
+
+	if( std::abs( s_prev - *highpass ) > 0.001f )
+	{
+		musicStream->RT_SetMusicHighPass( *highpass );
+		s_prev = *highpass;
+	}
+}
+#endif
+
+
 void S_CreateStream()
 {
 	if (!mus_playing.handle) return;
@@ -212,6 +241,9 @@ void S_CreateStream()
 
 		musicStream.reset(GSnd->CreateStream(FillStream, fmt.mBufferSize, flags, fmt.mSampleRate, nullptr));
 		if (musicStream) musicStream->Play(true, 1);
+#if HAVE_RT
+		RT_UpdateMusicHighpass( nullptr );
+#endif
 	}
 }
 
@@ -321,6 +353,24 @@ void S_UpdateMusic ()
 				S_StopMusic(true);
 			}
 		}
+
+#if HAVE_RT
+		{
+			float highpass = 0;
+
+			if( cvar::rt_classic_mus )
+			{
+				highpass = std::clamp< float >( cvar::rt_classic, 0, 1 );
+
+				// at 50% it should sound more highpass
+				highpass = sqrtf( highpass );
+				// rescale, so max is 0.75
+				highpass = 0.75f * highpass;
+			}
+
+			RT_UpdateMusicHighpass( &highpass );
+		}
+#endif
 	}
 }
 

@@ -193,6 +193,13 @@ private:
     friend class OpenALSoundStream;
 
 	ALCdevice *InitDevice();
+
+#if HAVE_RT
+public:
+	ALuint rtmusic_EnvSlot{ 0 };
+	ALuint rtmusic_EnvFilters[ 2 ]{};
+	void   RT_SetMusicHighpass( ALuint source, float highpass );
+#endif
 };
 
 #endif // NO_OPENAL

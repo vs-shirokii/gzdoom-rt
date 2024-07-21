@@ -8,6 +8,7 @@ namespace cvar
 EXTERN_CVAR( Float, rt_cpu_nocullradius )
 
 EXTERN_CVAR( Float, rt_classic )
+EXTERN_CVAR( Bool, rt_classic_mus )
 
 EXTERN_CVAR( Int, rt_upscale_dlss )
 EXTERN_CVAR( Int, rt_upscale_fsr2 )

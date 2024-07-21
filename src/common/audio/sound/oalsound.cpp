@@ -311,7 +311,11 @@ public:
 
 	void UpdateVolume()
 	{
+#if !HAVE_RT
 		alSourcef(Source, AL_GAIN, Renderer->MusicVolume*Volume);
+#else
+		alSourcef(Source, AL_GAIN, Renderer->MusicVolume*Volume*rt_volumemult);
+#endif
 		getALError();
 	}
 
@@ -519,6 +523,20 @@ public:
 		return true;
 	}
 
+#if HAVE_RT
+	float rt_volumemult = 1.0f;
+
+	void RT_SetMusicHighPass( float highpass ) override
+	{
+		if( Renderer && Source )
+		{
+			Renderer->RT_SetMusicHighpass( Source, highpass );
+
+			rt_volumemult = 1 + 0.5f * std::clamp( highpass, 0.0f, 1.0f );
+			UpdateVolume();
+		}
+	}
+#endif
 };
 
 
@@ -569,6 +587,26 @@ ALCdevice *OpenALSoundRenderer::InitDevice()
 	return device;
 }
 
+#if HAVE_RT
+void OpenALSoundRenderer::RT_SetMusicHighpass( ALuint source, float highpass )
+{
+	if( !alFilterf || !rtmusic_EnvSlot || !rtmusic_EnvFilters[ 0 ] || !rtmusic_EnvFilters[ 1 ] )
+	{
+		return;
+	}
+
+	float lowfilter = 1.f - std::clamp( highpass, 0.f, 1.f );
+
+	alFilterf( rtmusic_EnvFilters[ 0 ], AL_HIGHPASS_GAIN, 1.f );
+	alFilterf( rtmusic_EnvFilters[ 0 ], AL_HIGHPASS_GAINLF, lowfilter );
+	alFilterf( rtmusic_EnvFilters[ 1 ], AL_HIGHPASS_GAIN, 1.f );
+	alFilterf( rtmusic_EnvFilters[ 1 ], AL_HIGHPASS_GAINLF, lowfilter );
+
+	alSourcei( source, AL_DIRECT_FILTER, rtmusic_EnvFilters[ 0 ] );
+	alSource3i( source, AL_AUXILIARY_SEND_FILTER, rtmusic_EnvSlot, 0, rtmusic_EnvFilters[ 1 ] );
+	getALError();
+}
+#endif
 
 template<typename T>
 static void LoadALFunc(const char *name, T *x)
@@ -839,6 +877,34 @@ OpenALSoundRenderer::OpenALSoundRenderer()
 				EnvSlot = 0;
 				getALError();
 			}
+
+	#if HAVE_RT
+			alGenAuxiliaryEffectSlots( 1, &rtmusic_EnvSlot );
+			alGenFilters( 2, rtmusic_EnvFilters );
+			if( getALError() == AL_NO_ERROR )
+			{
+				alFilteri( rtmusic_EnvFilters[ 0 ], AL_FILTER_TYPE, AL_FILTER_HIGHPASS );
+				alFilteri( rtmusic_EnvFilters[ 1 ], AL_FILTER_TYPE, AL_FILTER_HIGHPASS );
+				if( getALError() == AL_NO_ERROR )
+					DPrintf( DMSG_SPAMMY, "  Highpass found\n" );
+				else
+				{
+					alDeleteFilters( 2, rtmusic_EnvFilters );
+					rtmusic_EnvFilters[ 0 ] = rtmusic_EnvFilters[ 1 ] = 0;
+					alDeleteAuxiliaryEffectSlots( 1, &rtmusic_EnvSlot );
+					rtmusic_EnvSlot = 0;
+					getALError();
+				}
+			}
+			else
+			{
+				alDeleteFilters( 2, rtmusic_EnvFilters );
+				alDeleteAuxiliaryEffectSlots( 1, &rtmusic_EnvSlot );
+				rtmusic_EnvFilters[ 0 ] = rtmusic_EnvFilters[ 1 ] = 0;
+				rtmusic_EnvSlot                                   = 0;
+				getALError();
+			}
+	#endif
 		}
 	}
 
@@ -908,6 +974,15 @@ OpenALSoundRenderer::~OpenALSoundRenderer()
 	}
 	EnvSlot = 0;
 	EnvFilters[0] = EnvFilters[1] = 0;
+#if HAVE_RT
+	if( rtmusic_EnvSlot )
+	{
+		alDeleteAuxiliaryEffectSlots( 1, &rtmusic_EnvSlot );
+		alDeleteFilters( 2, rtmusic_EnvFilters );
+	}
+	rtmusic_EnvSlot         = 0;
+	rtmusic_EnvFilters[ 0 ] = rtmusic_EnvFilters[ 1 ] = 0;
+#endif
 
 	alcMakeContextCurrent(NULL);
 	alcDestroyContext(Context);
