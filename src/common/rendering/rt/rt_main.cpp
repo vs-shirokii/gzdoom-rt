@@ -4433,6 +4433,12 @@ static void RT_DrawTitle()
 
         if( soundEngine )
         {
+            // HACKHACK
+            if( g_title_uploaded == "title/iconofsin" )
+            {
+                return;
+            }
+
             FSoundID sound = T_FindSound( "sounds/cutscene/boom.ogg" );
             soundEngine->StartSound(
                 SOURCE_None, nullptr, nullptr, CHAN_AUTO, CHANF_UI, sound, 1.0f, ATTN_NONE );

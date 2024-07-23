@@ -2224,7 +2224,7 @@ void A_RtShowTitle( AActor* self, int titleid, double duration_seconds, double f
 	const char* img;
 	switch( titleid )
 	{
-		case 0: img = "title/iconofsin"; break;
+		case 0: img = "title/iconofsin"; break; // also look up HACKHACK RT_DrawTitle()
 		default: img = nullptr; break;
 	}
 	if( !img || img[ 0 ] == '\0' )
