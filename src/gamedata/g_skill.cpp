@@ -141,7 +141,14 @@ void FMapInfoParser::ParseSkill ()
 		}
 		else if (sc.Compare ("easybossbrain"))
 		{
+#if !HAVE_RT
 			skill.EasyBossBrain = true;
+#else
+			// SHIPPING_HACK: i wanted to make the "brain/spit" sound to be in sync with the title image "A_BrainShowTitle"
+			//                but on easy difficulty, it skips the first spit, but image is still shown... so quick-fix is to never have "easy boss"
+			skill.EasyBossBrain = false;
+			// SHIPPING_HACK
+#endif
 		}
 		else if (sc.Compare ("easykey"))
 		{
