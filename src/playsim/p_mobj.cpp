@@ -164,10 +164,10 @@ namespace cvar
 {
 EXTERN_CVAR( Bool, rt_fluid );
 }
-CVARD( Float, rt_blood_speed,    80.f, CVAR_ARCHIVE, "horizontal max blood fluid speed on spawn (in Doom units per second; 32 units = 1 meter)" );
+CVARD( Float, rt_blood_speed,   100.f, CVAR_ARCHIVE, "horizontal max blood fluid speed on spawn (in Doom units per second; 32 units = 1 meter)" );
 CVARD( Float, rt_blood_speed_v,  70.f, CVAR_ARCHIVE, "vertical max blood fluid speed on spawn (in Doom units per second; 32 units = 1 meter)" );
 CVARD( Float, rt_blood_angle,   170.f, CVAR_ARCHIVE, "blood fluid spawn dispersion, in degrees" );
-CVARD( Int,   rt_blood_dens,    192,   CVAR_ARCHIVE, "blood fluid spawn density" );
+CVARD( Int,   rt_blood_dens,    256,   CVAR_ARCHIVE, "blood fluid spawn density" );
 CVARD( Bool,  rt_blood_dbg,     false, CVAR_ARCHIVE, "if true, blood fluid will be spawned on any hitscan hit (puff)" );
 CVARD( Bool,  rt_blood_groovy,  false, CVAR_ARCHIVE, "more blood. (overrides rt_blood_dens, rt_blood_speed, rt_blood_speed_v)" );
 CVARD( Float, rt_blood_offs,    -16.f, CVAR_ARCHIVE, "horizontal offset to prevent spawn inside the walls / things. if <0, rand is in [-1,1] otherswise [0,1]" );
@@ -5928,8 +5928,8 @@ void RT_SpawnBlood( float mult, const FVector3 &pos, FVector3 dir )
 {
 	assert( std::abs( dir.LengthSquared() - 1.0 ) < 0.001 );
 
-	float speed   = rt_blood_groovy ? 500.f : rt_blood_speed;
-	float speed_v = rt_blood_groovy ? 150.f : rt_blood_speed_v;
+	float speed_v = rt_blood_speed_v;
+	float speed   = rt_blood_groovy ? 200.f : rt_blood_speed;
 	int   count   = rt_blood_groovy ? 2048 : rt_blood_dens;
 
 	count = int( count * std::clamp< float >( mult, 0.0f, 10.0f ) );
@@ -6134,10 +6134,10 @@ void P_SpawnBlood (const DVector3 &pos1, DAngle dir, int damage, AActor *origina
 			{
 				float dmgMult = std::clamp( float( damage ) / 15.f, 1.0f, 4.0f );
 
-				auto norm = DRotator{};
-				norm.Yaw  = dir + DAngle::fromDeg( 180 ); // idk why opposite
+				auto intoactor = DRotator{};
+				intoactor.Yaw  = dir;
 
-				RT_SpawnBlood_Thing( dmgMult, pos, norm );
+				RT_SpawnBlood_Thing( dmgMult, pos, intoactor );
 			}
 		}
 #endif

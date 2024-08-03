@@ -5180,11 +5180,26 @@ void P_TraceBleed(int damage, const DVector3 &pos, AActor *actor, DAngle angle, 
 					0;
 
 				if( repl == 0 || repl == 1 )
-				{ 
-					extern void RT_SpawnBlood( float mult, const FVector3& pos, FVector3 dir );
-					RT_SpawnBlood( damage > 20 ? 3 : 2,
-					               FVector3{ bleedtrace.HitPos - vdir * 10 }, // to avoid blood being stuck in a wall
-					               FVector3{ vdir } );
+				{
+					bool islocalplayer = false;
+					{
+						if( actor && actor->Level && actor->player )
+						{
+							if( actor->Level->PlayerNum( actor->player ) == consoleplayer )
+							{
+								islocalplayer = true;
+							}
+						}
+					}
+					if( !islocalplayer )
+					{
+						extern void RT_SpawnBlood( float mult, const FVector3& posa, FVector3 dir );
+						RT_SpawnBlood(
+						    damage > 20 ? 3 : 2,
+						    FVector3{ bleedtrace.HitPos -
+						              vdir * 10 }, // to avoid blood being stuck in a wall
+						    FVector3{ vdir } );
+					}
 
 					if( repl == 0 )
 					{

@@ -4114,7 +4114,7 @@ void RT_SpawnFluid( int             count,
             .velocity               = { float( velocity.X ) * ONEGAMEUNIT_IN_METERS,
                                         float( velocity.Y ) * ONEGAMEUNIT_IN_METERS,
                                         float( velocity.Z ) * ONEGAMEUNIT_IN_METERS },
-            .dispersionVelocity     = 0.8f,
+            .dispersionVelocity     = 0.9f,
             .dispersionAngleDegrees = dispersionDegrees,
             .count                  = uint32_t( count ),
         };
