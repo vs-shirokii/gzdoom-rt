@@ -20,6 +20,7 @@ EXTERN_CVAR( Bool, rt_hdr )
 EXTERN_CVAR( Int, rt_shadowrays )
 EXTERN_CVAR( Bool, rt_withplayer )
 EXTERN_CVAR( Bool, rt_lerpmdlangle )
+EXTERN_CVAR( Bool, rt_decals )
 
 extern bool rt_available_dlss2;
 extern bool rt_available_dlss3fg;
