@@ -24,6 +24,8 @@
 
 #include "rt_state.h"
 
+#include <shellapi.h>
+
 #include <filesystem>
 #include <span>
 #include <variant>
@@ -1978,6 +1980,10 @@ void RT_Print( const char* pMessage, RgMessageSeverityFlags flags, void* pUserDa
 
 } // anonymous namespace
 
+#ifdef _WIN32
+std::atomic< HWND > g_msgbox_parent{};
+#endif
+
 
 
 //
@@ -2022,6 +2028,7 @@ Win32RTVideo::Win32RTVideo()
             { "rt/bin/sl.dlss.dll", RT_FEATURE_DLSS3_FG },
             { "rt/bin/sl.dlss_g.dll", RT_FEATURE_DLSS3_FG },
             { "rt/bin/sl.reflex.dll", RT_FEATURE_DLSS3_FG },
+            { "rt/bin/sl.pcl.dll", RT_FEATURE_DLSS3_FG },
             { "rt/bin/sl.common.dll", RT_FEATURE_DLSS3_FG },
             { "rt/bin/sl.interposer.dll", RT_FEATURE_DLSS3_FG },
             { "rt/bin/ffx_fsr2_x64.dll", RT_FEATURE_FSR2 },
@@ -2054,7 +2061,7 @@ Win32RTVideo::Win32RTVideo()
             }
             else
             {
-                msg = "These features will NOT be available!\n";
+                msg = "Features will NOT be available!\n";
                 // clang-format off
                 if( failedFeatures & RT_FEATURE_DLSS3_FG) msg += "    NVIDIA DLSS3 (AI Frame Generation)\n";
                 if( failedFeatures & RT_FEATURE_DLSS2   ) msg += "    NVIDIA DLSS2 (AI Upscaling)\n";
@@ -2063,20 +2070,20 @@ Win32RTVideo::Win32RTVideo()
                 // clang-format on
             }
 
-            msg += "\nBecause the folder \'rt/bin/\' doesn't contain:\n";
+            msg += "\nReason: \'rt/bin/\' folder doesn't contain:\n";
             msg += failedPaths;
-            msg += "\n(To suppress this warning, use \'-nodllcheck\' argument)";
-
-            MessageBoxA( nullptr, msg.c_str(), "DLL check failure", MB_ICONEXCLAMATION | MB_OK );
-
-            // TODO: add a link to the download page
-            int r = MessageBoxA( nullptr,
-                                 "\'GZDoom: Ray Traced\' will NOT have a full feature set...\n\n"
-                                 "Are you sure you want to continue?",
+            // msg += "\n(To suppress this warning, use \'-nodllcheck\' argument)";
+            msg += "\nPress YES to open Renderer's Download page.";
+            msg += "\nPress NO to proceed with limited feature set.";
+            
+            int l = MessageBoxA( g_msgbox_parent.load(),
+                                 msg.c_str(),
                                  "DLL check failure",
                                  MB_ICONEXCLAMATION | MB_YESNO );
-            if( r != IDYES )
+            if( l == IDYES )
             {
+                ShellExecute(
+                    nullptr, 0, L"https://github.com/vs-shirokii/RTGL/releases", 0, 0, SW_SHOW );
                 exit( -1 );
             }
         }
@@ -2244,10 +2251,6 @@ void Win32RTVideo::Shutdown()
 
     rt = {};
 }
-
-#ifdef _WIN32
-std::atomic< HWND > g_msgbox_parent{};
-#endif
 
 void RT_ShowWarningMessageBox( const char* msg )
 {
