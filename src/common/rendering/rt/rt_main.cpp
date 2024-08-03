@@ -99,6 +99,8 @@ namespace cvar
     RT_CVAR( rt_classic,                0.f,    "[0.0,1.0] what portion of the screen to render with a classic mode" )
     RT_CVAR( rt_classic_mus,            true,   "if true, apply high pass filter to music when classic mode is enabled" )
     RT_CVAR( rt_classic_white,          10.f,   "white point for classic renderer" )
+    RT_CVAR( rt_classic_llmax,          0.8f,    "max light level: remaps a gzdoom sector light level [0.0,rt_classic_llmax] range to [0.0,1.0]" )
+    RT_CVAR( rt_classic_llpow,          5.f,    "power to apply to convert a gzdoom sector light level [0.0,1.0] to visible intensity" )
 
     RT_CVAR( rt_framegen,               0,      "enable frame generation via DirectX 12 and DXGI swapchain. DLSS3 if rt_upscale_dlss>0, FSR3 if rt_upscale_fsr2>0. "
                                                 "Values:  0=off  1=on  -1=run frame generation logic, but skip presentation of the generated frame." )
@@ -156,12 +158,7 @@ namespace cvar
     RT_CVAR( rt_sky_stretch,            1.2f,   "how much to stretch the sky sphere along the vertical axis")
     RT_CVAR( rt_sky_always,             true,   "always submit sky geometry (even if it's not visible in primary view)")
 
-    // RT_CVAR( rt_sun,                 7000.f, "sun intensity")
-    // RT_CVAR( rt_sun_diameter,        0.5f,   "sun angular diameter in degrees")
-
-    // RT_CVAR( rt_light_d,             1000.f, "intensity of dynamic lights (e.g. explosions)")
-    // RT_CVAR( rt_light_s,             1000.f, "intensity of lights defined by a map")
-    // RT_CVAR( rt_light_radius,        0.02f,  "default radius for original lights (in meters)")
+    RT_CVAR( rt_decals,                 true,   "draw decals. NOTE: impacts CPU performance, as gzdoom requires a doom-wall to be fullyparsed to submit its decals :(")
 
     RT_CVAR( rt_lightlevel_min,            80,  "[replacements lights] min bound for translating gzdoom lightlevel to light intensity: if lightlevel below this, lights are multiplied by 0.0; must be >= 0" )
     RT_CVAR( rt_lightlevel_max,           230,  "[replacements lights] max bound for translating gzdoom lightlevel to light intensity: if lightlevel above this, lights are multiplied by 1.0; must be <= 255" )
@@ -173,11 +170,13 @@ namespace cvar
     RT_CVAR( rt_flsh_angle,             35.f,   "flashlight width in degrees")
     RT_CVAR( rt_flsh_r,                 -0.3f,  "flashlight position offset - right (in meteres)")
     RT_CVAR( rt_flsh_u,                 -0.7f,  "flashlight position offset - up (in meteres)")
+    RT_CVAR( rt_flsh_f,                 0.0f,   "flashlight position offset - forward (in meteres)")
 
     RT_CVAR( rt_sun,                    false,  "enable sun for debugging")
     RT_CVAR( rt_sun_intensity,          1000.f, "sun intensity")
     RT_CVAR( rt_sun_a,                  45.f,   "[-90, 90] sun altitude angle; how high it is from the horizon")
     RT_CVAR( rt_sun_b,                  0.f,    "[0, 360] sun azimuth angle; hotizontal angle, counter-clockwise")
+    RT_CVAR_COLOR( rt_sun_color,      0xFFFFFF, "sun color (hex)")
 
     RT_CVAR( rt_reflrefr_depth,         8,      "max depth of reflect/refract") 
     RT_CVAR( rt_refr_glass,             1.52f,  "glass index of refraction") 
@@ -187,7 +186,7 @@ namespace cvar
 
     RT_CVAR( rt_mzlflsh,                true,   "enable muzzle flash light source (activated on extralight)" )
     RT_CVAR( rt_mzlflsh_intensity,      100.f,  "muzzle flash intensity" )
-    RT_CVAR_COLOR( rt_mzlflsh_color, 0xFF8C52,  "muzzle flash color (hex)" )
+    RT_CVAR_COLOR( rt_mzlflsh_color,  0xFF8C52, "muzzle flash color (hex)" )
     RT_CVAR( rt_mzlflsh_radius,         0.02f,  "muzzle flash light sphere radius (in meters)")
     RT_CVAR( rt_mzlflsh_offset,         0.6f,   "[0.0, 1.0] muzzle flash offset from the hit point, so the light would not be in a wall")
     RT_CVAR( rt_mzlflsh_f,              3.0f,   "muzzle flash light offset - forward (in meteres)" )
@@ -431,14 +430,32 @@ auto rtcolor( const FVector4PalEntry& e ) -> RgColor4DPacked32
     return rt.rgUtilPackColorFloat4D( e.r, e.g, e.b, e.a );
 }
 
-float normalize_lightlevel( float lightlevel )
+auto cvarcolor_to_rtcolor( const FColorCVarRef& cvarcolor ) -> RgColor4DPacked32
 {
-    if( lightlevel >= 0.0f )
+    uint32_t ba = *( cvarcolor );
+
+    int r = RPART( ba );
+    int g = GPART( ba );
+    int b = BPART( ba );
+
+    return rt.rgUtilPackColorByte4D( r, g, b, 255 );
+}
+
+float lightlevel_to_classic( float lightlevel )
+{
+    if( lightlevel < 0.0f )
     {
-        lightlevel = std::min( lightlevel, 1.0f );
-        return lightlevel * lightlevel;
+        return 1.0f;
     }
-    return 1.0f;
+    
+    float newrange = std::min( float( cvar ::rt_classic_llmax ), 1.0f );
+    if( newrange <= 0.0f )
+    {
+        newrange = 1.0f;
+    }
+
+    lightlevel = std::clamp( lightlevel / newrange, 0.0f, 1.0f );
+    return std::pow( lightlevel, float( cvar::rt_classic_llpow ) );
 }
 
 auto rtcolor_multiply( const FVector4PalEntry& e, const FVector4& b, bool forcealpha1 ) -> RgColor4DPacked32
@@ -1538,15 +1555,18 @@ private:
         auto l_makeSpectreFlags = [ & ]() -> RgMeshInfoFlags {
             if( IsSpectre() )
             {
-                int mode =
-                    rtstate.is< RtPrim::FirstPersonViewer >() || rtstate.is< RtPrim::FirstPerson >()
-                        ? *cvar::rt_spectre_invis1
-                        : *cvar::rt_spectre;
+                bool firstperson = rtstate.is< RtPrim::FirstPersonViewer >() ||
+                                   rtstate.is< RtPrim::FirstPerson >();
+
+                // suppress inter-reflection on spectres
+                RgMeshInfoFlags fs = firstperson ? 0 : RG_MESH_FORCE_IGNORE_REFRACT_AFTER;
+
+                int mode = firstperson ? *cvar::rt_spectre_invis1 : *cvar::rt_spectre;
                 switch( mode )
                 {
-                    case 1: return RG_MESH_FORCE_GLASS;
-                    case 2: return RG_MESH_FORCE_MIRROR;
-                    default: return RG_MESH_FORCE_WATER;
+                    case 1: return fs | RG_MESH_FORCE_GLASS;
+                    case 2: return fs | RG_MESH_FORCE_MIRROR;
+                    default: return fs | RG_MESH_FORCE_WATER;
                 }
             }
             return 0;
@@ -1641,7 +1661,7 @@ private:
                 ( mRenderStyle.BlendOp == STYLEOP_Add && mRenderStyle.DestAlpha == STYLEALPHA_One )
                     ? cvar::rt_emis_additive_dflt
                     : 0.f,
-            .classicLight = normalize_lightlevel( mLightParms[ 3 ] ),
+            .classicLight = lightlevel_to_classic( mLightParms[ 3 ] ),
         };
 
 #ifndef NDEBUG
@@ -1756,6 +1776,7 @@ public:
         {
             pos += gzvec3( up ) * cvar::rt_flsh_u;
             pos += gzvec3( right ) * cvar::rt_flsh_r;
+            pos += gzvec3( forward ) * cvar::rt_flsh_f;
         }
 
         auto target = gzvec3( basePosition ) + 20 * gzvec3( forward );
@@ -1846,21 +1867,10 @@ public:
             }
         }
 
-        RgColor4DPacked32 color;
-		{
-            uint32_t ba = *( cvar::rt_mzlflsh_color );
-
-            int r = RPART( ba );
-            int g = GPART( ba );
-            int b = BPART( ba );
-
-            color = rt.rgUtilPackColorByte4D( r, g, b, 255 );
-        }
-
         auto sph = RgLightSphericalEXT{
             .sType     = RG_STRUCTURE_TYPE_LIGHT_SPHERICAL_EXT,
             .pNext     = nullptr,
-            .color     = color,
+            .color     = cvarcolor_to_rtcolor( cvar::rt_mzlflsh_color ),
             .intensity = cvar::rt_mzlflsh_intensity,
             .position  = { pos.X, pos.Y, pos.Z },
             .radius    = cvar::rt_mzlflsh_radius,
@@ -3039,7 +3049,7 @@ void RTFrameBuffer::RT_DrawFrame()
         auto s = RgLightDirectionalEXT{
             .sType                  = RG_STRUCTURE_TYPE_LIGHT_DIRECTIONAL_EXT,
             .pNext                  = nullptr,
-            .color                  = RG_PACKED_COLOR_WHITE,
+            .color                  = cvarcolor_to_rtcolor( cvar::rt_sun_color ),
             .intensity              = float{ cvar::rt_sun_intensity },
             .direction              = dir,
             .angularDiameterDegrees = 0.5f,
