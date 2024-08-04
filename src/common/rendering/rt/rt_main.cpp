@@ -100,9 +100,10 @@ namespace cvar
 
     RT_CVAR( rt_classic,                0.f,    "[0.0,1.0] what portion of the screen to render with a classic mode" )
     RT_CVAR( rt_classic_mus,            true,   "if true, apply high pass filter to music when classic mode is enabled" )
-    RT_CVAR( rt_classic_white,          10.f,   "white point for classic renderer" )
-    RT_CVAR( rt_classic_llmax,          0.8f,    "max light level: remaps a gzdoom sector light level [0.0,rt_classic_llmax] range to [0.0,1.0]" )
-    RT_CVAR( rt_classic_llpow,          5.f,    "power to apply to convert a gzdoom sector light level [0.0,1.0] to visible intensity" )
+    RT_CVAR( rt_classic_white,          3.0f,   "white point for classic renderer" )
+    RT_CVAR( rt_classic_llmin,          0.07f,  "min light level: remaps a gzdoom sector light level from [0.0,1.0] range to [rt_classic_llMIN,rt_classic_llMAX]" )
+    RT_CVAR( rt_classic_llmax,          1.0f,   "max light level: remaps a gzdoom sector light level from [0.0,1.0] range to [rt_classic_llMIN,rt_classic_llMAX]" )
+    RT_CVAR( rt_classic_llpow,          5.0f,   "power to apply to convert a gzdoom sector light level [0.0,1.0] to visible intensity" )
 
     RT_CVAR( rt_framegen,               0,      "enable frame generation via DirectX 12 and DXGI swapchain. DLSS3 if rt_upscale_dlss>0, FSR3 if rt_upscale_fsr2>0. "
                                                 "Values:  0=off  1=on  -1=run frame generation logic, but skip presentation of the generated frame." )
@@ -443,21 +444,33 @@ auto cvarcolor_to_rtcolor( const FColorCVarRef& cvarcolor ) -> RgColor4DPacked32
     return rt.rgUtilPackColorByte4D( r, g, b, 255 );
 }
 
-float lightlevel_to_classic( float lightlevel )
+float lightlevel_to_classic( bool isui, float lightlevel )
 {
+    if( isui )
+    {
+        return 1.0f;
+    }
+
     if( lightlevel < 0.0f )
     {
         return 1.0f;
     }
-    
-    float newrange = std::min( float( cvar ::rt_classic_llmax ), 1.0f );
-    if( newrange <= 0.0f )
+
+    float lmin = std::max( float( cvar::rt_classic_llmin ), 0.0f );
+    float lmax = std::min( float( cvar::rt_classic_llmax ), 1.0f );
+
+    float lrange = std::max( lmax - lmin, 0.0f );
+    if( lrange < 0.001f )
     {
-        newrange = 1.0f;
+        lmin   = 0.0f;
+        lmax   = 1.0f;
+        lrange = 1.0f;
     }
 
-    lightlevel = std::clamp( lightlevel / newrange, 0.0f, 1.0f );
-    return std::pow( lightlevel, float( cvar::rt_classic_llpow ) );
+    float t01 = std::clamp( lightlevel, 0.0f, 1.0f );
+    t01       = std::pow( t01, float( cvar::rt_classic_llpow ) );
+    
+    return lmin + t01 * lrange;
 }
 
 auto rtcolor_multiply( const FVector4PalEntry& e, const FVector4& b, bool forcealpha1 ) -> RgColor4DPacked32
@@ -1663,7 +1676,7 @@ private:
                 ( mRenderStyle.BlendOp == STYLEOP_Add && mRenderStyle.DestAlpha == STYLEALPHA_One )
                     ? cvar::rt_emis_additive_dflt
                     : 0.f,
-            .classicLight = lightlevel_to_classic( mLightParms[ 3 ] ),
+            .classicLight = lightlevel_to_classic( isUI, mLightParms[ 3 ] ),
         };
 
 #ifndef NDEBUG
