@@ -2074,20 +2074,21 @@ Win32RTVideo::Win32RTVideo()
             }
             else
             {
-                msg = "Features will NOT be available!\n";
                 // clang-format off
-                if( failedFeatures & RT_FEATURE_DLSS3_FG) msg += "    NVIDIA DLSS3 (AI Frame Generation)\n";
-                if( failedFeatures & RT_FEATURE_DLSS2   ) msg += "    NVIDIA DLSS2 (AI Upscaling)\n";
-                if( failedFeatures & RT_FEATURE_FSR3_FG ) msg += "    AMD FSR 3 (Frame Generation)\n";
-                if( failedFeatures & RT_FEATURE_FSR2    ) msg += "    AMD FSR 2 (Upscaling)\n";
+                if( failedFeatures & RT_FEATURE_DLSS3_FG) msg += "NVIDIA DLSS3 (AI Frame Generation)\n";
+                if( failedFeatures & RT_FEATURE_DLSS2   ) msg += "NVIDIA DLSS2 (AI Upscaling)\n";
+                if( failedFeatures & RT_FEATURE_FSR3_FG ) msg += "AMD FSR 3 (Frame Generation)\n";
+                if( failedFeatures & RT_FEATURE_FSR2    ) msg += "AMD FSR 2 (Upscaling)\n";
                 // clang-format on
+                msg += "                                   will NOT be available!\n";
             }
 
-            msg += "\nReason: \'rt/bin/\' folder doesn't contain:\n";
+            msg += "Reason: \'rt/bin/\' folder doesn't contain:\n";
             msg += failedPaths;
             // msg += "\n(To suppress this warning, use \'-nodllcheck\' argument)";
-            msg += "\nPress YES to open Renderer's Download page.";
-            msg += "\nPress NO to proceed with limited feature set.";
+            msg += "\n\nDo you want to download the missing files?\n";
+            msg += "\nYES - open renderer's Download page";
+            msg += "\nNO  - proceed with a limited feature set";
             
             int l = MessageBoxA( g_msgbox_parent.load(),
                                  msg.c_str(),
