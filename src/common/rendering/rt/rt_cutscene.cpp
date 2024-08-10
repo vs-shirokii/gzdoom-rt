@@ -80,6 +80,7 @@ extern double g_cpu_latency;
 
 // -------------- //
 
+extern bool g_isremix;
 
 extern const char* g_rt_cutscenename;
 static auto        g_cstime_start  = std::optional< double >{};
@@ -959,7 +960,8 @@ namespace firststart
 
 #if RT_HOOK_INTRO
             // after settings, get to the intro
-            if( cvar::rt_firststart )
+            // note: remix wrapper doesn't support animation :(
+            if( cvar::rt_firststart && !g_isremix )
             {
                 if( !state.introstate )
                 {

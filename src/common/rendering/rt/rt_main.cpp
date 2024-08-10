@@ -46,6 +46,8 @@
 RgInterface rt      = {};
 FRtState    rtstate = {};
 
+bool g_isremix{ false };
+
 //
 //
 //
@@ -127,6 +129,9 @@ namespace cvar
     RT_CVAR( rt_upscale_fsr2,           0,      "0 - off, 1 - quality, 2 - balanced, 3 - perf, 4 - ultra perf, 5 - FSR2 with rt_renderscale, 6 - native. "
                                                 "This controls the FSR3 / FSR2 upscaling (Super Resolution), but not the Frame Generation.")
     RT_CVAR( rt_sharpen,                0,      "image sharpening; 0 - auto, 1 - naive, 2 - AMD CAS, 3 - force disable" )
+
+    RT_CVAR( rt_remix_rayreconstr,      false,  "[only for RTX Remix] DLSS Ray Reconstruction - denoise path tracing with AI" )
+    RT_CVAR( rt_remix_reflex,           true,   "[only for RTX Remix] Reflex - reduce latency between inputs and visible results" )
 
     RT_CVAR( rt_shadowrays,             4,      "max depth of shadow ray casts" )
     RT_CVAR( rt_withplayer,             true,   "enable player model for shadows, reflections etc" )
@@ -2172,7 +2177,23 @@ Win32RTVideo::Win32RTVideo()
     constexpr bool isdebug = false;
 #endif
 
-    RgResult r = rgLoadLibraryAndCreate( &info, isdebug, &rt, nullptr );
+    const char* remixdll = nullptr;
+    {
+        g_isremix = false;
+        if( Args->CheckParm( "-rtxremix" ) )
+        {
+            // never Remix on first start
+            if( !cvar::rt_firststart )
+            {
+                g_isremix = true;
+            }
+        }
+
+        remixdll = g_isremix ? "\\bin_remix\\RTGL1.dll" : nullptr;
+    }
+
+
+    RgResult r = rgLoadLibraryAndCreate( &info, isdebug, remixdll, &rt, nullptr );
     if( r != RG_RESULT_SUCCESS )
     {
         auto msg = std::string{ "RgResult code: " };
@@ -2180,14 +2201,15 @@ Win32RTVideo::Win32RTVideo()
         switch( r )
         {
             case RG_RESULT_CANT_FIND_DYNAMIC_LIBRARY:
-                msg = isdebug ? "Can't find \'rt/bin/debug/RTGL1.dll\' file"
-                               : "Can't find \'rt/bin/RTGL1.dll\' file";
+                msg = remixdll  ? "Can't load Remix Renderer DLLs"
+                      : isdebug ? "Can't find \'rt/bin/debug/RTGL1.dll\' file"
+                                : "Can't find \'rt/bin/RTGL1.dll\' file";
                 break;
             case RG_RESULT_CANT_FIND_ENTRY_FUNCTION_IN_DYNAMIC_LIBRARY:
                 msg =
-                    isdebug
-                        ? "Can't find rgCreateInstance function in \'rt/bin/debug/RTGL1.dll\'"
-                        : "Can't find rgCreateInstance function in \'rt/bin/RTGL1.dll\'";
+                    remixdll  ? "Can't find rgCreateInstance function in Remix Renderer wrapper DLL"
+                    : isdebug ? "Can't find rgCreateInstance function in \'rt/bin/debug/RTGL1.dll\'"
+                              : "Can't find rgCreateInstance function in \'rt/bin/RTGL1.dll\'";
                 break;
 
             // clang-format off
@@ -2809,6 +2831,12 @@ namespace classic_toggle
 
     CCMD( rt_classic_toggle )
     {
+        if( g_isremix )
+        {
+            cvar::rt_classic = 0; 
+            return;
+        }
+
         g_timeend = RT_GetCurrentTime() + Duration;
         g_source  = std::clamp< float >( cvar::rt_classic, 0, 1 );
 
@@ -2824,6 +2852,12 @@ namespace classic_toggle
 
     void Animate()
     {
+        if( g_isremix )
+        {
+            cvar::rt_classic = 0;
+            return;
+        }
+
         if( g_target )
         {
             double dt = g_timeend - RT_GetCurrentTime();
@@ -2946,6 +2980,18 @@ void RT_UploadExportableSectorLights()
 //
 //
 
+// Special extension
+#define ext_RG_STRUCTURE_TYPE_START_FRAME_REMIX_PARAMS ( ( RgStructureType )1024 )
+struct ext_RgStartFrameRemixParams
+{
+    RgStructureType sType;
+    void*           pNext;
+    RgBool32        rayReconstruction;
+    RgBool32        taa;
+    RgBool32        nis;
+    RgBool32        reflex;
+};
+
 void RTFrameBuffer::RT_BeginFrame()
 {
     // HACKHACK begin
@@ -2969,10 +3015,19 @@ void RTFrameBuffer::RT_BeginFrame()
     m_state->RT_BeginFrame();
 
     classic_toggle::Animate();
-    
+
+    auto remix_params = ext_RgStartFrameRemixParams{
+        .sType             = ext_RG_STRUCTURE_TYPE_START_FRAME_REMIX_PARAMS,
+        .pNext             = nullptr,
+        .rayReconstruction = ( cvar::rt_remix_rayreconstr ? 1u : 0u ),
+        .taa               = 1,
+        .nis               = 0,
+        .reflex            = ( cvar::rt_remix_reflex ? 1u : 0u ),
+    };
+
     auto resolution_params = RgStartFrameRenderResolutionParams{
         .sType             = RG_STRUCTURE_TYPE_START_FRAME_RENDER_RESOLUTION_PARAMS,
-        .pNext             = nullptr,
+        .pNext             = g_isremix ? &remix_params : nullptr,
         .preferDxgiPresent = cvar::rt_available_dxgi ? cvar::rt_dxgi : false,
     };
     RT_ResolutionToRtgl( &resolution_params, RT_GetCurrentWindowSize() );
@@ -4180,6 +4235,13 @@ void RT_DrawFullscreenImage( const char* texture,
                              float       splitef = 0,
                              float       scale   = 1 )
 {
+    // samplers are hardcoded to 'repeat' in the wrapper + primitive.color is ignored
+    // so don't play anything :(
+    if( g_isremix )
+    {
+        return;
+    }
+
     if( !texture || texture[ 0 ] == '\0' )
     {
         return;
@@ -4379,6 +4441,13 @@ void RT_StartTitleImage( const char* imagepath,
                          int         end_maptime,
                          int         fadeout_tics )
 {
+    // samplers are hardcoded to 'repeat' in the wrapper + primitive.color is ignored
+    // so don't play anything :(
+    if( g_isremix )
+    {
+        return;
+    }
+
     if( !imagepath || imagepath[ 0 ] == '\0' )
     {
         g_title_requested.clear();
