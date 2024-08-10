@@ -1493,6 +1493,7 @@ DEFINE_ACTION_FUNCTION(DListMenuItemTextItem_RT, GetCurrentWindowWidth)
 }
 
 #include "rt/rt_cvars.h"
+extern bool g_isremix;
 
 DEFINE_ACTION_FUNCTION(DListMenuItemTextItem_RT, IsAvailable_DLSS2)
 {
@@ -1517,6 +1518,14 @@ DEFINE_ACTION_FUNCTION(DListMenuItemTextItem_RT, IsAvailable_DXGI)
 DEFINE_ACTION_FUNCTION(DListMenuItemTextItem_RT, IsHDRAvailable)
 {
     ACTION_RETURN_BOOL(cvar::rt_hdr_available);
+}
+DEFINE_ACTION_FUNCTION(DListMenuItemTextItem_RT, IsRtxRemix)
+{
+    ACTION_RETURN_BOOL(bool(g_isremix));
+}
+DEFINE_ACTION_FUNCTION(DListMenuItemSelectable, IsRtxRemix2)
+{
+    ACTION_RETURN_BOOL(bool(g_isremix));
 }
 
 #include <span>
@@ -1673,6 +1682,21 @@ static auto RT_GetDescription( std::string_view rtkey, bool forFirstStartMenu = 
         static const char* lines[] = {
             "Fluid blood simulation and rendering.",
             "Impacts GPU performance considerably.",
+        };
+        return lines;
+    }
+    if( rtkey == "RTMNU_RAYRECONST" )
+    {
+        static const char* lines[] = {
+            "NVIDIA Ray Reconstruction",
+            "",
+            "If \'Ray Reconstruction\' is ON, use AI to denoise a path traced image.",
+            "Exclusive to NVIDIA RTX graphics cards.",
+            "",
+            "If OFF, use NRD (NVIDIA Real-Time Denoiser) library to denoise.",
+            "NRD is available on most graphics cards.",
+            "",
+            "Impacts GPU performance.",
         };
         return lines;
     }

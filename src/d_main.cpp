@@ -127,6 +127,7 @@
 #include "rt/rt_cvars.h"
 void        RT_FirstStartDone();
 extern bool g_noinput_onstart;
+extern bool g_isremix;
 #endif
 
 using namespace FileSys;
@@ -1158,6 +1159,11 @@ void D_Display ()
 		PerformWipe(wipestart, screen->WipeEndScreen(), wipe_type, false, DrawOverlays);
 	}
 #else
+	if( g_isremix )
+	{
+		wipe_type = wipe_None;
+	}
+
     if (NoWipe >= 0 && wipe_type != wipe_None && !hud_toggled)
     {
 		extern bool g_wasRtMeltInitByWorldDone;
@@ -3840,6 +3846,16 @@ static int D_DoomMain_Internal (void)
 	if( !FileExists( RT_GetFirstStartMarker() ) )
 	{
 		cvar::rt_firststart = true;
+	}
+
+	g_isremix = false;
+	if( Args->CheckParm( "-rtxremix" ) )
+	{
+		// never Remix on first start
+		if( !cvar::rt_firststart )
+		{
+			g_isremix = true;
+		}
 	}
 #endif
 

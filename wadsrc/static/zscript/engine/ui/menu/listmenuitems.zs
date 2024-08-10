@@ -251,9 +251,23 @@ class ListMenuItemSelectable : ListMenuItem
 	int mHotkey;
 	int mHeight;
 	int mParam;
+	
+// HAVE_RT
+	private native static bool IsRtxRemix2();
+// HAVE_RT
 
 	protected void Init(double x, double y, int height, Name childmenu, int param = -1)
 	{
+// HAVE_RT
+		if (IsRtxRemix2())
+		{
+			if (childmenu == "RT_OptionsMenu")
+			{
+				childmenu = "RT_OptionsMenuRemix";
+			}
+		}
+// HAVE_RT
+
 		Super.Init(x, y, childmenu);
 		mHeight = height;
 		mParam = param;

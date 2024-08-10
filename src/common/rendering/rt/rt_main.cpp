@@ -132,6 +132,7 @@ namespace cvar
 
     RT_CVAR( rt_remix_rayreconstr,      false,  "[only for RTX Remix] DLSS Ray Reconstruction - denoise path tracing with AI" )
     RT_CVAR( rt_remix_reflex,           true,   "[only for RTX Remix] Reflex - reduce latency between inputs and visible results" )
+    RT_CVAR( rt_remix_taa,              0,      "[only for RTX Remix] temporal anti aliasing. 0 - off, 1 - quality, 2 - balanced, 3 - perf, 4 - ultra perf, 5 - FSR2 with rt_renderscale, 6 - native" )
 
     RT_CVAR( rt_shadowrays,             4,      "max depth of shadow ray casts" )
     RT_CVAR( rt_withplayer,             true,   "enable player model for shadows, reflections etc" )
@@ -2177,21 +2178,7 @@ Win32RTVideo::Win32RTVideo()
     constexpr bool isdebug = false;
 #endif
 
-    const char* remixdll = nullptr;
-    {
-        g_isremix = false;
-        if( Args->CheckParm( "-rtxremix" ) )
-        {
-            // never Remix on first start
-            if( !cvar::rt_firststart )
-            {
-                g_isremix = true;
-            }
-        }
-
-        remixdll = g_isremix ? "\\bin_remix\\RTGL1.dll" : nullptr;
-    }
-
+    const char* remixdll = g_isremix ? "\\bin_remix\\RTGL1.dll" : nullptr;
 
     RgResult r = rgLoadLibraryAndCreate( &info, isdebug, remixdll, &rt, nullptr );
     if( r != RG_RESULT_SUCCESS )
@@ -2246,6 +2233,7 @@ Win32RTVideo::Win32RTVideo()
         {
             cvar::rt_upscale_dlss = 2;
             cvar::rt_upscale_fsr2 = 0;
+            cvar::rt_remix_taa    = 0;
             cvar::rt_ef_vintage   = 0;
         }
         else if( rt.rgUtilIsUpscaleTechniqueAvailable( RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2, //
@@ -2254,13 +2242,41 @@ Win32RTVideo::Win32RTVideo()
         {
             cvar::rt_upscale_dlss = 0;
             cvar::rt_upscale_fsr2 = 2;
+            cvar::rt_remix_taa    = 0;
             cvar::rt_ef_vintage   = 0;
         }
         else
         {
             cvar::rt_upscale_dlss = 0;
             cvar::rt_upscale_fsr2 = 0;
-            cvar::rt_ef_vintage   = RT_VINTAGE_480_DITHER;
+            cvar::rt_remix_taa    = g_isremix ? 2 : 0;
+            cvar::rt_ef_vintage   = g_isremix ? 0 : RT_VINTAGE_480_DITHER;
+        }
+    }
+    else
+    {
+        if( g_isremix )
+        {
+            if( cvar::rt_upscale_dlss == 0 && //
+                cvar::rt_upscale_fsr2 > 0 &&  //
+                cvar::rt_remix_taa == 0 &&    //
+                cvar::rt_ef_vintage == 0 )
+            {
+                cvar::rt_remix_taa = cvar::rt_upscale_fsr2;
+            }
+            cvar::rt_upscale_fsr2 = 0;
+            cvar::rt_ef_vintage   = 0;
+        }
+        else
+        {
+            if( cvar::rt_upscale_dlss == 0 && //
+                cvar::rt_upscale_fsr2 == 0 &&  //
+                cvar::rt_remix_taa > 0 &&    //
+                cvar::rt_ef_vintage == 0 )
+            {
+                cvar::rt_upscale_fsr2 = cvar::rt_remix_taa;
+            }
+            cvar::rt_remix_taa = 0;
         }
     }
 }
@@ -3016,22 +3032,43 @@ void RTFrameBuffer::RT_BeginFrame()
 
     classic_toggle::Animate();
 
-    auto remix_params = ext_RgStartFrameRemixParams{
-        .sType             = ext_RG_STRUCTURE_TYPE_START_FRAME_REMIX_PARAMS,
-        .pNext             = nullptr,
-        .rayReconstruction = ( cvar::rt_remix_rayreconstr ? 1u : 0u ),
-        .taa               = 1,
-        .nis               = 0,
-        .reflex            = ( cvar::rt_remix_reflex ? 1u : 0u ),
-    };
 
     auto resolution_params = RgStartFrameRenderResolutionParams{
         .sType             = RG_STRUCTURE_TYPE_START_FRAME_RENDER_RESOLUTION_PARAMS,
-        .pNext             = g_isremix ? &remix_params : nullptr,
+        .pNext             = nullptr,
         .preferDxgiPresent = cvar::rt_available_dxgi ? cvar::rt_dxgi : false,
     };
     RT_ResolutionToRtgl( &resolution_params, RT_GetCurrentWindowSize() );
     RT_UpscaleCvarsToRtgl( &resolution_params );
+
+    ext_RgStartFrameRemixParams remix_params;
+    if( g_isremix )
+    {
+        remix_params = ext_RgStartFrameRemixParams{
+            .sType             = ext_RG_STRUCTURE_TYPE_START_FRAME_REMIX_PARAMS,
+            .pNext             = nullptr,
+            .rayReconstruction = ( cvar::rt_remix_rayreconstr ? 1u : 0u ),
+            .taa               = ( cvar::rt_remix_taa > 0 ? 1u : 0u ),
+            .nis               = 0,
+            .reflex            = ( cvar::rt_remix_reflex ? 1u : 0u ),
+        };
+
+        switch( int( cvar::rt_remix_taa ) )
+        {
+            case 4:
+                resolution_params.resolutionMode = RG_RENDER_RESOLUTION_MODE_ULTRA_PERFORMANCE;
+                break;
+            case 3: resolution_params.resolutionMode = RG_RENDER_RESOLUTION_MODE_PERFORMANCE; break;
+            case 2: resolution_params.resolutionMode = RG_RENDER_RESOLUTION_MODE_BALANCED; break;
+            case 1: resolution_params.resolutionMode = RG_RENDER_RESOLUTION_MODE_QUALITY; break;
+            case 6: resolution_params.resolutionMode = RG_RENDER_RESOLUTION_MODE_NATIVE_AA; break;
+            case 5: resolution_params.resolutionMode = RG_RENDER_RESOLUTION_MODE_CUSTOM; break;
+            default: remix_params.taa = 0; break;
+        }
+
+        remix_params.pNext      = resolution_params.pNext;
+        resolution_params.pNext = &remix_params;
+    }
 
     RT_MakeLightstyles();
 
