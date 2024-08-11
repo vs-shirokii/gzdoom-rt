@@ -3843,7 +3843,7 @@ void RT_FirstStartDone()
 static int D_DoomMain_Internal (void)
 {
 #if HAVE_RT
-	if( !FileExists( RT_GetFirstStartMarker() ) )
+	if( Args->CheckParm( "-rtfirststart" ) || !FileExists( RT_GetFirstStartMarker() ) )
 	{
 		cvar::rt_firststart = true;
 	}
