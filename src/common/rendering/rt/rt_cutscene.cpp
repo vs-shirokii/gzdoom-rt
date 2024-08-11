@@ -139,8 +139,8 @@ namespace intro
     const char*    CutsceneMusicPath       = "sounds/cutscene/iconofsin_l.ogg";
     constexpr auto CutsceneDuration        = 56;
     const char*    TitleImage_Path         = "title/doom2logo";
-    constexpr auto TitleImage_TimeBegin    = 30.75;
-    constexpr auto TitleImage_TimeBegin2   = 30.9;
+    constexpr auto TitleImage_TimeBegin    = 30.86;
+    constexpr auto TitleImage_TimeBegin2   = TitleImage_TimeBegin + 0.08;
     constexpr auto TitleImage_ColorBegin   = 32.0;
     constexpr auto TitleImage_ColorEnd     = 42.5;
     constexpr auto TitleImage_FadeOutBegin = 47.8;
