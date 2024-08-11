@@ -862,22 +862,25 @@ namespace firststart
                 {
                     case ITEM_MODE: {
                         cvar::rt_framegen = false;
-                        if( cvar::rt_upscale_dlss > 0 && cvar::rt_available_dlss2 )
+                        if( cvar::rt_available_dlss2 && cvar::rt_available_fsr2 )
                         {
-                            const int preset      = *cvar::rt_upscale_dlss;
+                            if( cvar::rt_upscale_dlss > 0 )
+                            {
+                                const int preset      = *cvar::rt_upscale_dlss;
+                                cvar::rt_upscale_dlss = 0;
+                                cvar::rt_upscale_fsr2 = preset;
+                            }
+                            else if( cvar::rt_upscale_fsr2 > 0 )
+                            {
+                                const int preset      = *cvar::rt_upscale_fsr2;
+                                cvar::rt_upscale_dlss = preset;
+                                cvar::rt_upscale_fsr2 = 0;
+                            }
+                        }
+                        else if( !cvar::rt_available_dlss2 && !cvar::rt_available_fsr2 )
+                        {
                             cvar::rt_upscale_dlss = 0;
-                            cvar::rt_upscale_fsr2 = preset;
-                        }
-                        else if( cvar::rt_upscale_fsr2 > 0 && cvar::rt_available_fsr2 )
-                        {
-                            const int preset      = *cvar::rt_upscale_fsr2;
-                            cvar::rt_upscale_dlss = preset;
                             cvar::rt_upscale_fsr2 = 0;
-                        }
-                        else
-                        {
-                            cvar::rt_upscale_dlss = cvar::rt_available_dlss2 ? 2 : 0;
-                            cvar::rt_upscale_fsr2 = cvar::rt_available_dlss2 ? 0 : 2;
                         }
                         return true;
                     }
@@ -1139,6 +1142,7 @@ namespace firststart
 
         if( state.finished )
         {
+            twod->AddColorOnlyQuad( 0, 0, twod->GetWidth(), twod->GetHeight(), 0xFF000000 );
             return;
         }
 
