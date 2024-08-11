@@ -1137,6 +1137,11 @@ namespace firststart
         }
 #endif
 
+        if( state.finished )
+        {
+            return;
+        }
+
         const auto curTime = RT_GetCurrentTime();
 
         if( state.page == PAGE_FADE )
