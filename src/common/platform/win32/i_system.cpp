@@ -1491,6 +1491,8 @@ static void SetWindowRounding( HWND hwnd, bool rounded )
 	    hwnd, dwmwa_window_corner_preference, &dwmwcp_round, sizeof( dwmwcp_round ) );
 }
 
+extern bool RT_AskToOpenUrl( const char* heading, const char* msg, const wchar_t* url );
+
 extern std::atomic< HWND > g_msgbox_parent;
 
 // TODO: set to 1, when Doom 1 is done
@@ -1510,10 +1512,12 @@ static void AskUserToChoose(std::stop_token stopToken, std::promise<ChooseResult
 #else
 	if( !hasDoom2 )
 	{
-		RT_ShowWarningMessageBox(
-		    "Can't find DOOM II\n"
-		    "or doom2.wad is not \'doom.id.doom2.commercial\'\n\n"
-		    "Please, install DOOM II on Steam, and relaunch." );
+		RT_AskToOpenUrl( "Compatible DOOM2.wad not found",
+		                 "Can't find DOOM2.wad (file that contains all game resources),\n"
+		                 "or doom2.wad is not \'doom.id.doom2.commercial\'.\n\n"
+		                 "Please, install DOOM II on Steam, and relaunch.\n\n"
+		                 "Open the Steam page?",
+		                 L"https://store.steampowered.com/app/2280/DOOM__DOOM_II/" );
 		result.set_value( ChooseResult::Close );
 		return;
 	}

@@ -537,6 +537,9 @@ void FIWadManager::ValidateIWADs()
 
 #if HAVE_RT
 bool rt_isdoom2 = false;
+
+extern void RT_ShowWarningMessageBox( const char* msg );
+extern bool RT_AskToOpenUrl( const char* heading, const char* msg, const wchar_t* url );
 #endif
 
 //==========================================================================
@@ -712,6 +715,15 @@ int FIWadManager::IdentifyVersion (std::vector<std::string>&wadfiles, const char
 	// If we still haven't found a suitable IWAD let's error out.
 	if (picks.Size() == 0)
 	{
+#if HAVE_RT
+		RT_AskToOpenUrl( "DOOM2.wad not found",
+		                 "Can't find DOOM2.wad (file that contains all game resources).\n"
+		                 "Please, install DOOM II on Steam."
+		                 "\n\nOpen the Steam page?",
+		                 L"https://store.steampowered.com/app/2280/DOOM__DOOM_II/" );
+		exit( -1 );
+#endif
+
 		I_FatalError ("Cannot find a game IWAD (doom.wad, doom2.wad, heretic.wad, etc.).\n"
 					  "Did you install " GAMENAME " properly? You can do either of the following:\n"
 					  "\n"
@@ -734,8 +746,6 @@ int FIWadManager::IdentifyVersion (std::vector<std::string>&wadfiles, const char
 	// We got more than one so present the IWAD selection box.
 #if !HAVE_RT
 	if (picks.Size() > 1)
-#else
-	if( picks.Size() > 1 || cvar::rt_firststart ) // force launcher on the first run ...
 #endif
 	{
 		// Locate the user's prefered IWAD, if it was found.
@@ -850,8 +860,6 @@ int FIWadManager::IdentifyVersion (std::vector<std::string>&wadfiles, const char
 		std::error_code ec;
 		const auto fileSize = std::filesystem::file_size( picks[ pick ].mFullPath.GetChars(), ec );
 
-		extern void RT_ShowWarningMessageBox( const char* );
-
 		auto l_showWarn = []( const FString& str ) {
 			RT_ShowWarningMessageBox( str.GetChars() );
 		};
@@ -860,12 +868,22 @@ int FIWadManager::IdentifyVersion (std::vector<std::string>&wadfiles, const char
 		{
 			if( fileSize != 14604584 )
 			{
-				l_showWarn(
-				    "Please, use the original DOOM2.wad file from Steam:\n    "
-				    "The provided DOOM2.wad has failed a file check:\n    " +
-				    picks[ pick ].mFullPath +
-				    "\n\n\nLight data for ray tracing will not be available.\nExpect INCORRECT "
-				    "LIGHTING and a worse experience." );
+				auto msg = "Please, use the original DOOM2.wad file from Steam:\n    "
+				           "The provided DOOM2.wad has failed a file check:\n    " +
+				           picks[ pick ].mFullPath +
+				           "\n\n\n"
+				           "Open a Steam page?";
+
+				if( RT_AskToOpenUrl( "Incompatible DOOM2.wad",
+				                     msg.GetChars(),
+				                     L"https://store.steampowered.com/app/2280/DOOM__DOOM_II/" ) )
+				{
+					exit( 0 );
+				}
+
+				l_showWarn( "Forcing incompatible WAD.\n\n"
+				            "Light data for ray tracing will not be available.\n"
+				            "Expect INCORRECT LIGHTING and a worse experience." );
 			}
 
 			rt_isdoom2 = true;

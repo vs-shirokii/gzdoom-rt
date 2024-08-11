@@ -287,6 +287,7 @@ TArray<FString> I_GetSteamPath()
 	{
 		"doom 2/base",
 		"final doom/base",
+		"ultimate doom/base/doom2",
 		"heretic shadow of the serpent riders/base",
 		"hexen/base",
 		"hexen deathkings of the dark citadel/base",

@@ -2313,6 +2313,17 @@ void RT_ShowWarningMessageBox( const char* msg )
 #endif
 }
 
+bool RT_AskToOpenUrl( const char* heading, const char* msg, const wchar_t* url )
+{
+    int l = MessageBoxA( g_msgbox_parent.load(), msg, heading, MB_ICONEXCLAMATION | MB_YESNO );
+    if( l == IDYES )
+    {
+        ShellExecute( nullptr, 0, url, 0, 0, SW_SHOW );
+        return true;
+    }
+    return false;
+}
+
 //
 //
 //
