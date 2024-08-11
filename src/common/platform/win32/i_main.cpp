@@ -136,6 +136,10 @@ void I_SetIWADInfo()
 	mainwindow.UpdateLayout();
 }
 
+#if HAVE_RT
+extern bool RT_GetRemixArgs( bool force_doom2, std::vector< const char* >& out_args );
+#endif
+
 //==========================================================================
 //
 // DoMain
@@ -159,6 +163,28 @@ int DoMain (HINSTANCE hInstance)
 	{
 		Args->AppendArg(FString(wargv[i]));
 	}
+
+#if HAVE_RT
+	if( Args->CheckParm( "-rtxremix_launcher" ) )
+	{
+		bool force_doom2 = true;
+		if( Args->CheckParm( "-rtxremix_dont_forcedoom2" ) )
+		{
+			force_doom2 = false;
+		}
+
+		std::vector< const char* > addargs{};
+		if( !RT_GetRemixArgs( force_doom2, addargs ) )
+		{
+			return 0;
+		}
+
+		for( const char* arg : addargs )
+		{
+			Args->AppendArg( arg );
+		}
+	}
+#endif
 
 	if (Args->CheckParm("-stdout"))
 	{

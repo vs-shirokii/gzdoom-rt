@@ -1,15 +1,20 @@
-#define STB_IMAGE_IMPLEMENTATION
-#include "C:\Dev\gzdoom\src\common\thirdparty\stb\stb_image.h"
+#include "defer.h"
+
+#include <stb\stb_image.h>
 
 #define WIN32_LEAN_AND_MEAN
 #include <dwmapi.h>
 #include <windows.h>
 #include <windowsx.h>
 
+#include <assert.h>
 #include <filesystem>
 #include <string>
 
-static void SetWindowRounding( HWND hwnd, bool rounded )
+namespace
+{
+
+void SetWindowRounding( HWND hwnd, bool rounded )
 {
     static HMODULE dwm = LoadLibrary( L"dwmapi.dll" );
     if( !dwm )
@@ -45,7 +50,7 @@ struct img_t
     int      h;
 };
 
-static auto loadimg( const char* path ) -> img_t
+auto loadimg( const char* path ) -> img_t
 {
     int  x, y, channels;
     auto img = stbi_load( path, &x, &y, &channels, 4 );
@@ -67,6 +72,15 @@ static auto loadimg( const char* path ) -> img_t
         .w    = x,
         .h    = y,
     };
+}
+
+void freeimg( img_t& img )
+{
+    if( img.data )
+    {
+        stbi_image_free( img.data );
+    }
+    img = {};
 }
 
 auto drawbackground( HDC hdc, const img_t& img )
@@ -267,12 +281,28 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam 
     return DefWindowProc( hwnd, message, wParam, lParam );
 }
 
-int WINAPI WinMain( HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR args, int nCmdShow )
+
+enum remixresult_e
 {
-    if( !std::filesystem::exists( "gzdoom.exe" ) )
+    REMIXRESULT_NONE,
+    REMIXRESULT_EXIT,
+    REMIXRESULT_RTX_ON,
+    REMIXRESULT_USE_FALLBACK,
+};
+
+remixresult_e CheckAndAskUser( bool force_doom2, std::vector< const char* >& out_args )
+{
+    out_args.clear();
+
+    if( !std::filesystem::exists( "rt/bin_remix/d3d9.dll" ) )
     {
-        ShowWarning( "Can't find gzdoom.exe" );
-        return -1;
+        ShowWarning( "Can't find \'rt/bin_remix/d3d9.dll\'" );
+        return REMIXRESULT_EXIT;
+    }
+    if( !std::filesystem::exists( "rt/bin_remix/RTGL1.dll" ) )
+    {
+        ShowWarning( "Can't find \'rt/bin_remix/RTGL1.dll\'" );
+        return REMIXRESULT_EXIT;
     }
 
     const wchar_t* winname = L"Choose Doom";
@@ -286,18 +316,29 @@ int WINAPI WinMain( HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR args, int nCmdSh
     if( !RegisterClass( &wc ) )
     {
         ShowWarning( "RegisterClass fail" );
-        return -1;
+        return REMIXRESULT_EXIT;
     }
+    defer
+    {
+        UnregisterClass( winname, GetModuleHandle( NULL ) );
+    };
 
     lnch_none = loadimg( "rt\\launcher\\lnch_none.png" );
     lnch_rr   = loadimg( "rt\\launcher\\lnch_rr.png" );
     lnch_nrd  = loadimg( "rt\\launcher\\lnch_nrd.png" );
     lnch_exit = loadimg( "rt\\launcher\\lnch_exit.png" );
+    defer
+    {
+        freeimg( lnch_none );
+        freeimg( lnch_rr );
+        freeimg( lnch_nrd );
+        freeimg( lnch_exit );
+    };
 
     if( !lnch_none.data || !lnch_rr.data || !lnch_nrd.data || !lnch_exit.data )
     {
         ShowWarning( "Image load fail" );
-        return -1;
+        return REMIXRESULT_EXIT;
     }
 
     wnd_size_x = lnch_none.w;
@@ -321,8 +362,12 @@ int WINAPI WinMain( HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR args, int nCmdSh
     if( !hwnd )
     {
         ShowWarning( "CreateWindowEx fail" );
-        return -1;
+        return REMIXRESULT_EXIT;
     }
+    defer
+    {
+        DestroyWindow( hwnd );
+    };
 
     // borderless
     {
@@ -355,86 +400,51 @@ int WINAPI WinMain( HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR args, int nCmdSh
 
             RedrawWindow( hwnd, NULL, NULL, RDW_INVALIDATE );
         }
-        DestroyWindow( hwnd );
-        UnregisterClass( winname, GetModuleHandle( NULL ) );
-    }
-
-    {
-        if( lnch_none.data )
-        {
-            stbi_image_free( lnch_none.data );
-        }
-        if( lnch_rr.data )
-        {
-            stbi_image_free( lnch_rr.data );
-        }
-        if( lnch_nrd.data )
-        {
-            stbi_image_free( lnch_nrd.data );
-        }
-        if( lnch_exit.data )
-        {
-            stbi_image_free( lnch_exit.data );
-        }
     }
 
     if( g_result == LAUNCHERRESULT_EXIT )
     {
-        return 0;
+        return REMIXRESULT_EXIT;
     }
 
     if( g_result != LAUNCHERRESULT_NRD && g_result != LAUNCHERRESULT_RR )
     {
-        return -2;
+        return REMIXRESULT_EXIT;
     }
 
-    bool forcedoom2 = true;
+    const char* denoiser = ( g_result == LAUNCHERRESULT_RR )    ? "+rt_remix_rayreconstr 1"
+                           : ( g_result == LAUNCHERRESULT_NRD ) ? "+rt_remix_rayreconstr 0"
+                                                                : nullptr;
+
+    out_args.push_back( "-rtxremix" );
+    if( denoiser )
     {
-        if( args && strstr( args, "-notdoom2" ) )
-        {
-            forcedoom2 = false;
-        }
+        out_args.push_back( denoiser );
     }
-
-    std::wstring cmd;
+    if( force_doom2 )
     {
-        const wchar_t* gzdoom   = L"gzdoom.exe";
-        const wchar_t* remix    = L"-rtxremix";
-        const wchar_t* denoiser = ( g_result == LAUNCHERRESULT_RR )    ? L"+rt_remix_rayreconstr 1"
-                                  : ( g_result == LAUNCHERRESULT_NRD ) ? L"+rt_remix_rayreconstr 0"
-                                                                       : L"";
-
-        cmd = std::wstring{ gzdoom } + L" " + remix + L" " + denoiser;
-
-        if( forcedoom2 )
-        {
-            cmd += L" -rtdoom2";
-        }
+        out_args.push_back( "-rtdoom2" );
     }
+    return REMIXRESULT_RTX_ON;
+}
 
+}
+
+bool RT_GetRemixArgs( bool force_doom2, std::vector< const char* >& out_args )
+{
+    remixresult_e r = CheckAndAskUser( force_doom2, out_args );
+    switch( r )
     {
-        STARTUPINFO         si = { .cb = sizeof( si ) };
-        PROCESS_INFORMATION pi = {};
-
-        if( !CreateProcess( NULL, // No module name (use command line)
-                            const_cast< wchar_t* >( cmd.c_str() ), // Command line
-                            NULL,                                  // Process handle not inheritable
-                            NULL,                                  // Thread handle not inheritable
-                            FALSE,                    // Set handle inheritance to FALSE
-                            CREATE_NEW_PROCESS_GROUP, // -- do not wait for process
-                            NULL,                     // Use parent's environment block
-                            NULL,                     // Use parent's starting directory
-                            &si,                      // Pointer to STARTUPINFO structure
-                            &pi )                     // Pointer to PROCESS_INFORMATION structure
-        )
-        {
-            ShowWarning( "CreateProcess fail" );
-            return -1;
+        case REMIXRESULT_RTX_ON: {
+            assert( !out_args.empty() );
+            return true;
         }
-
-        CloseHandle( pi.hProcess );
-        CloseHandle( pi.hThread );
+        case REMIXRESULT_USE_FALLBACK: {
+            out_args.clear();
+            return true;
+        }
+        case REMIXRESULT_NONE:
+        case REMIXRESULT_EXIT:
+        default: return false;
     }
-
-    return 0;
 }
