@@ -82,10 +82,14 @@ class FGameTexture
 	friend class FMaterial;
 	friend class GLDefsParser;	// this needs access to set up the texture properly
 
+public:
+
 	// Material layers. These are shared so reference counting is used.
 	RefCountedPtr<FTexture> Base;
 	RefCountedPtr<FTexture> Brightmap;
 	std::unique_ptr<FMaterialLayers> Layers;
+
+private:
 
 	FString Name;
 	FTextureID id;

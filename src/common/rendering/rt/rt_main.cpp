@@ -262,7 +262,7 @@ namespace cvar
     bool rt_firststart = false;
 }
 
-RT_CVAR( rt_mod_compat, 1, "mod compatibility level: 0 - none, 1 - enable" )
+RT_CVAR( rt_mod_compat, 3, "mod compatibility level bit mask: < bit 1: brightmap fallback | bit 0: general >" )
 
 // clang-format on
 
@@ -1665,17 +1665,36 @@ private:
             {
                 return true;
             }
-            if( rt_mod_compat )
+            if( rt_mod_compat & 2 )
             {
-                if( mBrightmapEnabled )
+                if( rtstate.is< RtPrim::ExportInstance >() )
                 {
-                    if( mTextureModeFlags & TEXF_Brightmap )
+                    if( mBrightmapEnabled )
                     {
-                        return true;
-                    }
-                    if( mTextureModeFlags & TEXF_Glowmap )
-                    {
-                        return true;
+                        if( mTextureModeFlags & TEXF_Glowmap )
+                        {
+                            if( mMaterial.mMaterial && mMaterial.mMaterial->sourcetex &&
+                                mMaterial.mMaterial->sourcetex->Layers.get() &&
+                                mMaterial.mMaterial->sourcetex->Layers->Glowmap.get() &&
+                                mMaterial.mMaterial->sourcetex->Layers->Glowmap->GetSourceLump() >= 0 &&
+                                mMaterial.mMaterial->sourcetex->Layers->Glowmap->GetWidth() > 0 &&
+                                mMaterial.mMaterial->sourcetex->Layers->Glowmap->GetHeight() > 0 )
+                            {
+                                return true;
+                            }
+                        }
+
+                        if( mTextureModeFlags & TEXF_Brightmap )
+                        {
+                            if( mMaterial.mMaterial && mMaterial.mMaterial->sourcetex &&
+                                mMaterial.mMaterial->sourcetex->Brightmap.get() &&
+                                mMaterial.mMaterial->sourcetex->Brightmap->GetSourceLump() >= 0 &&
+                                mMaterial.mMaterial->sourcetex->Brightmap->GetWidth() > 0 &&
+                                mMaterial.mMaterial->sourcetex->Brightmap->GetHeight() > 0 )
+                            {
+                                return true;
+                            }
+                        }
                     }
                 }
             }
