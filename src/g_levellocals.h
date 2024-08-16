@@ -710,6 +710,11 @@ public:
 
 	TObjPtr<DSpotState *> SpotState = MakeObjPtr<DSpotState*>(nullptr);
 
+#if HAVE_RT
+	FString RT_MapName; // "<wad>_<mapname>", where <wad> is a wad file (without extensions) that
+	                    // contains this map; always lower case
+#endif
+
 	//==========================================================================
 	//
 	//

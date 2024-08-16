@@ -118,7 +118,7 @@ namespace cvar
     RT_CVAR( rt_fluid_pradius,          0.1f,   "(APPLIED ONLY after disabling rt_fluid) radis of one particle (in meters) for fluid simulation" )
     RT_CVAR( rt_fluid_gravity_x,        0.f,    "gravity vector for fluid (horizontal, X), in m/s^2" )
     RT_CVAR( rt_fluid_gravity_y,        0.f,    "gravity vector for fluid (horizontal, Y), in m/s^2" )
-    RT_CVAR( rt_fluid_gravity_z,        -9.8f,  "gravity vector for fluid (vertical), in m/s^2" )
+    RT_CVAR( rt_fluid_gravity_z,        -14.f,  "gravity vector for fluid (vertical), in m/s^2" )
     RT_CVAR( rt_blood_color_r,          0.4f,   "color for blood fluid (Red)" )
     RT_CVAR( rt_blood_color_g,          0.0f,   "color for blood fluid (Green)" )
     RT_CVAR( rt_blood_color_b,          0.0f,   "color for blood fluid (Blue)" )
@@ -332,18 +332,9 @@ const char* RT_GetMapName()
         return g_rt_cutscenename;
     }
 
-    if( primaryLevel && !primaryLevel->MapName.IsEmpty() )
+    if( primaryLevel && !primaryLevel->RT_MapName.IsEmpty() )
     {
-        static char mapname_lower[ 128 ];
-
-        size_t i = 0;
-        for( ; i < primaryLevel->MapName.Len() && i < std::size( mapname_lower ) - 1; i++ )
-        {
-            mapname_lower[ i ] = std::tolower( primaryLevel->MapName[ i ] );
-        }
-        mapname_lower[ std::min( i, std::size( mapname_lower ) - 1 ) ] = '\0';
-
-        return mapname_lower;
+        return primaryLevel->RT_MapName.GetChars();
     }
 
     if( g_rt_showfirststartscene )
@@ -2780,7 +2771,7 @@ static void RT_DrawTitle();
 static void RT_ClearTitles();
 static void RT_InjectTitleIntoDoomMap( const char* mapname );
 
-void RT_OnLevelLoad( const char* mapname)
+void RT_OnLevelLoad( const char* mapname )
 {
     g_resetposteffects = true;
     g_resetfluid       = true;

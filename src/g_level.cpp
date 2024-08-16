@@ -1382,9 +1382,32 @@ void G_DoLoadLevel(const FString &nextmapname, int position, bool autosave, bool
 	I_UpdateWindowTitle();
 }
 
+#if HAVE_RT
+extern FString RT_GetMapWadName( const char* mapname );
+#endif
+
 void FLevelLocals::DoLoadLevel(const FString &nextmapname, int position, bool autosave, bool newGame)
 {
 	MapName = nextmapname;
+#if HAVE_RT
+	RT_MapName = "";
+	{
+		FString wad_of_map = RT_GetMapWadName( MapName.GetChars() );
+
+		// paranoia
+		bool isdoom2wad = wad_of_map.CompareNoCase( "doom2" ) == 0 ||
+		                  wad_of_map.CompareNoCase( "doom2.wad" ) == 0;
+
+		if( wad_of_map.IsEmpty() || isdoom2wad )
+		{
+			RT_MapName = MapName.MakeLower();
+		}
+		else
+		{
+			RT_MapName = wad_of_map.MakeLower() + "_" + MapName.MakeLower();
+		}
+	}
+#endif
 	static int lastposition = 0;
 	int i;
 

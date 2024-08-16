@@ -383,6 +383,60 @@ bool P_CheckMapData(const char *mapname)
 	return true;
 }
 
+#if HAVE_RT
+FString RT_GetMapWadName( const char* mapname )
+{
+	if( !mapname || mapname[ 0 ] == '\0' )
+	{
+		return {};
+	}
+
+	MapData *mapd = P_OpenMapData(mapname, true);
+	if (mapd == NULL) return {};
+
+	auto out_wadname = FString{};
+
+	if( mapd->lumpnum >= 0 )
+	{
+		int rfnum = fileSystem.GetFileContainer( mapd->lumpnum );
+		if( rfnum >= 0 )
+		{
+			if( auto wadname = fileSystem.GetResourceFileName( rfnum ) )
+			{
+				// lower
+				auto wadname_noext = std::string{ wadname };
+				for( char& c : wadname_noext )
+				{
+					c = ( char )std::tolower( c );
+				}
+
+				// no ext
+				for( std::string_view ext : { ".wad", ".pk3", ".iwad", ".ipk3", ".ipk7" } )
+				{
+					if( wadname_noext.ends_with( ext ) )
+					{
+						wadname_noext.erase( wadname_noext.size() - ext.size() );
+					}
+				}
+
+				// special case for doom2.wad
+				if( wadname_noext == "doom2" )
+				{
+					out_wadname = FString{};
+				}
+				else
+				{
+					out_wadname = wadname_noext.c_str();
+				}
+			}
+		}
+	}
+
+	delete mapd;
+	return out_wadname;
+}
+#endif
+
 //===========================================================================
 //
 // MapData :: GetChecksum

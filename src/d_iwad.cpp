@@ -716,9 +716,10 @@ int FIWadManager::IdentifyVersion (std::vector<std::string>&wadfiles, const char
 	if (picks.Size() == 0)
 	{
 #if HAVE_RT
-		RT_AskToOpenUrl( "DOOM2.wad not found",
-		                 "Can't find DOOM2.wad (file that contains all game resources).\n"
-		                 "Please, install DOOM II on Steam."
+		RT_AskToOpenUrl( "IWAD not found",
+		                 "Can't find any \'.wad\' (file that contains all game resources).\n"
+		                 "Please, install DOOM on Steam,\n"
+		                 "or place \'.wad\' file into the same directory as " GAMENAME ".exe"
 		                 "\n\nOpen the Steam page?",
 		                 L"https://store.steampowered.com/app/2280/DOOM__DOOM_II/" );
 		exit( -1 );
