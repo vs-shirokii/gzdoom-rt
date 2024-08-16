@@ -261,6 +261,9 @@ namespace cvar
 
     bool rt_firststart = false;
 }
+
+RT_CVAR( rt_mod_compat, 1, "mod compatibility level: 0 - none, 1 - enable" )
+
 // clang-format on
 
 EXTERN_CVAR( Float, blood_fade_scalar );
@@ -1644,8 +1647,39 @@ private:
                               : 0;
                     break;
             }
+            
+            if( rt_mod_compat )
+            {
+                // assume all sprites alpha test
+                if( rtstate.is< RtPrim::ExportInstance >() )
+                {
+                    add |= RG_MESH_PRIMITIVE_ALPHA_TESTED;
+                }
+            }
 
             return ( mAlphaThreshold > 0 ? RG_MESH_PRIMITIVE_ALPHA_TESTED : 0 ) | add;
+        };
+
+        auto l_isemis = [ & ]() {
+            if( mRenderStyle.BlendOp == STYLEOP_Add && mRenderStyle.DestAlpha == STYLEALPHA_One )
+            {
+                return true;
+            }
+            if( rt_mod_compat )
+            {
+                if( mBrightmapEnabled )
+                {
+                    if( mTextureModeFlags & TEXF_Brightmap )
+                    {
+                        return true;
+                    }
+                    if( mTextureModeFlags & TEXF_Glowmap )
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
         };
 
         // HACKHACK: replacements are ignored if a prim is rasterized, force alpha=1.0
@@ -1669,10 +1703,7 @@ private:
             .textureFrame         = 0,
             .color =
                 rtcolor_multiply( mStreamData.uObjectColor, mStreamData.uVertexColor, forcealpha1 ),
-            .emissive =
-                ( mRenderStyle.BlendOp == STYLEOP_Add && mRenderStyle.DestAlpha == STYLEALPHA_One )
-                    ? cvar::rt_emis_additive_dflt
-                    : 0.f,
+            .emissive     = l_isemis() ? cvar::rt_emis_additive_dflt : 0.f,
             .classicLight = lightlevel_to_classic( isUI, mLightParms[ 3 ] ),
         };
 

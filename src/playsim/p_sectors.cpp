@@ -1422,8 +1422,19 @@ bool FLevelLocals::AlignFlat (int linenum, int side, int fc)
 //
 //==========================================================================
 
+#if HAVE_RT
+EXTERN_CVAR( Int, rt_mod_compat );
+#endif
+
 void FLevelLocals::ReplaceTextures(const char *fromname, const char *toname, int flags)
 {
+#if HAVE_RT
+	if( rt_mod_compat )
+	{
+		return;
+	}
+#endif
+
 	FTextureID picnum1, picnum2;
 
 	if (fromname == nullptr)

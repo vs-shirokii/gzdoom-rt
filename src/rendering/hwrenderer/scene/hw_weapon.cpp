@@ -435,6 +435,10 @@ void HUDSprite::SetBright(bool isbelow)
 //
 //==========================================================================
 
+#if HAVE_RT
+EXTERN_CVAR( Int, rt_mod_compat );
+#endif
+
 bool HUDSprite::GetWeaponRenderStyle(DPSprite *psp, AActor *playermo, sector_t *viewsector, WeaponLighting &lighting)
 {
 	auto rs = psp->GetRenderStyle(playermo->RenderStyle, playermo->Alpha);
@@ -505,6 +509,16 @@ bool HUDSprite::GetWeaponRenderStyle(DPSprite *psp, AActor *playermo, sector_t *
 	lightlevel = lighting.lightlevel;
 	cm = lighting.cm;
 	if (bright) SetBright(lighting.isbelow);
+
+#if HAVE_RT
+	if( rt_mod_compat )
+	{
+		if( bright )
+		{
+			RenderStyle.DestAlpha = STYLEALPHA_One;
+		}
+	}
+#endif
 
 	return true;
 }
